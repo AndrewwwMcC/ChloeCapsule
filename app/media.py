@@ -6,6 +6,7 @@ HEIC from iPhones is supported. Videos: read duration/size/date with ffprobe and
 grab a poster frame with ffmpeg. The original file is always kept untouched."""
 import io
 import json
+import shutil
 import subprocess
 from datetime import datetime, timezone
 
@@ -109,7 +110,11 @@ def _video_date(fmt_tags: dict) -> datetime | None:
 
 
 def process_video(source: str) -> dict:
-    """`source` is a local path or a signed URL — ffmpeg reads only what it needs."""
+    """`source` is a local path or a signed URL — ffmpeg reads only what it needs.
+    Without ffmpeg installed (e.g. a laptop), the video is kept but has no poster."""
+    if not shutil.which("ffprobe") or not shutil.which("ffmpeg"):
+        return {"taken_at": None, "width": None, "height": None, "duration": None,
+                "display": None, "thumb": None}
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", source],
         capture_output=True, timeout=120,

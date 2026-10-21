@@ -9,7 +9,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, PlainTextResponse,
+                               RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -27,7 +28,7 @@ async def lifespan(_app: FastAPI):
     db.init()
     threading.Thread(target=storage.abort_stale_uploads, daemon=True).start()
     yield
-    db.pool.close()
+    db.close()
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -235,6 +236,22 @@ def upload_page(request: Request):
         request, nav="upload", chunk_size=CHUNK_SIZE)))
 
 
+@app.get("/files/{key:path}")
+def local_file(request: Request, key: str, download: str | None = None):
+    """Local mode only: serves stored files to logged-in visitors."""
+    if not storage.LOCAL:
+        raise HTTPException(404)
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    try:
+        path = storage.local_path(key)
+    except ValueError:
+        raise HTTPException(404)
+    if not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, filename=download) if download else FileResponse(path)
+
+
 @app.get("/media/{media_id}/download")
 def download(request: Request, media_id: uuid.UUID):
     if not auth.role_of(request):
@@ -256,7 +273,7 @@ def ingest(*, media_id: str, key: str, kind: str, name: str, size: int, mime: st
             data = Path(local_path).read_bytes() if local_path else storage.get(key)
             result = media.process_photo(data)
         else:
-            result = media.process_video(local_path or storage.url(key))
+            result = media.process_video(local_path or storage.ffmpeg_source(key))
     except Exception as exc:  # unreadable file: don't keep a broken item
         storage.delete(key)
         raise HTTPException(415, f"Couldn't read {name}: {type(exc).__name__}")
@@ -383,8 +400,7 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
             return {"duplicate": True}
         media_id = str(uuid.uuid4())
         key = f"originals/{media_id}{_ext(name)}"
-        with open(tmp.name, "rb") as fh:
-            storage.s3.upload_fileobj(fh, storage.BUCKET, key, ExtraArgs={"ContentType": mime})
+        storage.put_file(key, tmp.name, mime)
 
         taken_dt = None
         if taken:
