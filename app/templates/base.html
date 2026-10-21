@@ -32,7 +32,7 @@
 {% block main %}{% endblock %}
 <footer class="foot">
   <span>Private album · please don't share links outside the family</span>
-  <a href="/logout">Log out</a>
+  <span>Viewing as {{ 'admin' if role == 'admin' else 'family' }} · <a href="/logout">Log out</a></span>
 </footer>
 {% endblock %}
 {% block scripts %}{% endblock %}

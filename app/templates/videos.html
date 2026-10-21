@@ -16,10 +16,8 @@
   </div>
 
   {% if not groups %}
-  <section class="empty">
-    <p>No videos {% if year %}from {{ year }} {% endif %}yet.</p>
-    {% if role == 'admin' %}<a class="btn primary big" href="/upload">Upload videos</a>{% endif %}
-  </section>
+  <p style="margin: 0 0 24px; color: var(--muted)">No videos {% if year %}from {{ year }} {% endif %}yet.</p>
+  {% if role == 'admin' %}<a class="btn primary big" href="/upload">Upload videos</a>{% endif %}
   {% endif %}
 
   {% for g in groups %}

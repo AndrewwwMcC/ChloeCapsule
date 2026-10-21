@@ -3,15 +3,17 @@
 {% block main %}
 <div class="wrap">
 {% if not years %}
-  <section class="empty">
-    <h1>Nothing here yet</h1>
-    {% if role == 'admin' %}
-    <p>Upload the first photos and they'll be sorted by the day they were taken.</p>
-    <a class="btn primary big" href="/upload">Upload photos</a>
-    {% else %}
-    <p>Photos will appear here once they're added.</p>
-    {% endif %}
-  </section>
+  <div class="page-head">
+    <div>
+      <h1>Photos</h1>
+      {% if role == 'admin' %}
+      <p>Nothing here yet. Upload the first photos and they'll be sorted by the day they were taken.</p>
+      {% else %}
+      <p>Nothing here yet. Photos will appear once they're added.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% if role == 'admin' %}<a class="btn primary big" href="/upload">Upload photos</a>{% endif %}
 {% else %}
 <div class="cols">
   <aside class="rail" aria-label="Years">
