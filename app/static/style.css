@@ -185,6 +185,7 @@ button { font: inherit; color: inherit; }
 .ctl-field > span { font-size: 13px; color: var(--muted); }
 .ctl-range { display: flex; align-items: center; gap: 14px; min-height: 44px; font-size: 14px; color: var(--muted); }
 .ctl-range input { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+.ctl-out { flex: 0 0 auto; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .seg {
   display: flex; border: 1px solid var(--border); border-radius: 999px;

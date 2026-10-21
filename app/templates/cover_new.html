@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit cover' if cover_id else 'New cover' }} · {{ site_name }}{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=DM+Serif+Display:ital@0;1&family=Gloock&family=Libre+Bodoni:ital,wght@0,400..700;1,400..700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=DM+Serif+Display:ital@0;1&family=Gloock&family=Libre+Bodoni:ital,wght@0,400..700;1,400..700&family=Noto+Serif+Display:ital,wght@0,100..900;1,100..900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap">
 {% endblock %}
 {% block main %}
 <main class="cover-wrap">
@@ -54,11 +54,15 @@
         <input class="input" id="masthead" type="text" maxlength="28" value="{{ site_name }}"
                aria-label="Masthead text" autocomplete="off">
         <div class="fontrow" id="fontrow" role="radiogroup" aria-label="Masthead typeface"></div>
-        <div class="seg narrow" id="weights" role="radiogroup" aria-label="Masthead weight">
-          <button class="seg-b" type="button" role="radio" data-weight="400" aria-checked="false">Regular</button>
-          <button class="seg-b" type="button" role="radio" data-weight="700" aria-checked="false">Bold</button>
-          <button class="seg-b" type="button" role="radio" data-weight="900" aria-checked="true">Black</button>
+        <div class="seg narrow" id="mast-case" role="radiogroup" aria-label="Masthead case">
+          <button class="seg-b" type="button" role="radio" data-case="upper" aria-checked="true">UPPERCASE</button>
+          <button class="seg-b" type="button" role="radio" data-case="typed" aria-checked="false">As typed</button>
         </div>
+        <label class="ctl-range" id="mast-weight-label" for="mast-weight">Weight
+          <input type="range" id="mast-weight" min="400" max="900" step="100" value="900">
+          <output class="ctl-out" id="mast-weight-out" for="mast-weight">900</output>
+        </label>
+        <p class="ctl-note" id="mast-weight-fixed" hidden></p>
       </section>
 
       <section class="ctl">
@@ -73,6 +77,15 @@
           <input class="input" id="issue" type="text" maxlength="48" autocomplete="off"></label>
         <label class="ctl-field"><span>Headline &amp; cover line typeface</span>
           <select class="input" id="textfont"></select></label>
+        <div class="seg narrow" id="head-case" role="radiogroup" aria-label="Headline case">
+          <button class="seg-b" type="button" role="radio" data-case="upper" aria-checked="true">UPPERCASE</button>
+          <button class="seg-b" type="button" role="radio" data-case="typed" aria-checked="false">As typed</button>
+        </div>
+        <label class="ctl-range" id="head-weight-label" for="head-weight">Headline weight
+          <input type="range" id="head-weight" min="400" max="900" step="100" value="700">
+          <output class="ctl-out" id="head-weight-out" for="head-weight">700</output>
+        </label>
+        <p class="ctl-note" id="head-weight-fixed" hidden></p>
       </section>
 
       <section class="ctl">
@@ -131,5 +144,5 @@
 <script id="cover-boot" type="application/json">{{ {
   'photo': start_photo, 'coverId': cover_id, 'nextNo': next_no,
   'siteName': site_name, 'settings': saved_settings } | tojson }}</script>
-<script src="/static/cover.js?v=1"></script>
+<script src="/static/cover.js?v=2"></script>
 {% endblock %}

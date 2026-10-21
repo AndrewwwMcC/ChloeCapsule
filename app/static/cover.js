@@ -10,28 +10,36 @@
   const INNER = W - M * 2;
   const boot = JSON.parse(document.getElementById('cover-boot').textContent);
 
-  // Google Fonts we offer for the masthead. `italic: false` means the family has no
-  // real italic — we leave it upright rather than let the browser fake a slant.
+  // Google Fonts we offer. `min`/`max` is the family's real weight axis — min === max
+  // means a single-weight face, and we never ask for a weight outside the axis, so the
+  // browser is never left to synthesize one. `italic: false` means there is no real
+  // italic either, and we leave the text upright instead of letting it be fake-slanted.
   const FONTS = [
-    { name: 'Bodoni Moda',      italic: true,  weights: [400, 700, 900] },
-    { name: 'Libre Bodoni',     italic: true,  weights: [700] },
-    { name: 'Playfair Display', italic: true,  weights: [400, 700, 900] },
-    { name: 'Abril Fatface',    italic: false, weights: [400] },
-    { name: 'DM Serif Display', italic: true,  weights: [400] },
-    { name: 'Gloock',           italic: false, weights: [400] },
+    { name: 'Bodoni Moda',        italic: true,  min: 400, max: 900 },
+    { name: 'Libre Bodoni',       italic: true,  min: 400, max: 700 },
+    { name: 'Playfair Display',   italic: true,  min: 400, max: 900 },
+    { name: 'Noto Serif Display', italic: true,  min: 100, max: 900 },
+    { name: 'Abril Fatface',      italic: false, min: 400, max: 400 },
+    { name: 'DM Serif Display',   italic: true,  min: 400, max: 400 },
+    { name: 'Gloock',             italic: false, min: 400, max: 400 },
   ];
 
   const COLOURS = ['#FFFFFF', '#1A1A18', '#B3261E', '#F2D27A'];
   const LAYOUTS = ['classic', 'side', 'minimal'];
+  const CASES = ['upper', 'typed'];
+  const MAX_MAST_INK = Math.round(H * 0.22);  // a masthead never eats more than this
 
   const el = (id) => document.getElementById(id);
   const st = {
     photo: boot.photo || null,
     layout: 'classic',
     masthead: boot.siteName || 'Chloé',
+    mastheadCase: 'upper',
     font: 'Bodoni Moda',
     weight: 900,
     textFont: null,              // null = same family as the masthead
+    headlineCase: 'upper',
+    headlineWeight: 700,
     headline: '', line1: '', line2: '', issue: '',
     colour: '#FFFFFF',
     scrim: true,
@@ -46,14 +54,18 @@
   // --- typefaces -------------------------------------------------------------------
 
   const fontOf = (name) => FONTS.find((f) => f.name === name) || FONTS[0];
-  const nearest = (list, want) =>
-    list.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
+
+  /** Nearest step of 100 the family actually has. */
+  function snap(f, want) {
+    const v = Math.round((Number(want) || f.min) / 100) * 100;
+    return Math.min(f.max, Math.max(f.min, v));
+  }
 
   function face(name, weight, wantItalic) {
     const f = fontOf(name);
     return {
       family: f.name,
-      weight: nearest(f.weights, weight),
+      weight: snap(f, weight),
       italic: !!(wantItalic && f.italic),
       at(size) {
         return `${this.italic ? 'italic ' : ''}${this.weight} ${size}px "${this.family}", Georgia, serif`;
@@ -67,18 +79,23 @@
   const textFamily = () => st.textFont || st.font;
   const small = (weight) => face(textFamily(), weight, false);
 
+  const mastText = () => (st.mastheadCase === 'typed' ? st.masthead : st.masthead.toUpperCase());
+  const headText = () => (st.headlineCase === 'typed' ? st.headline : st.headline.toUpperCase());
+
   const ready = new Set();
 
   function neededFaces() {
     const t = textFamily();
+    const hw = st.headlineWeight;
     return [face(st.font, st.weight, st.layout === 'minimal'), face(st.font, st.weight, false),
-            face(t, 400, false), face(t, 400, true), face(t, 700, false)];
+            face(t, hw, false), face(t, hw, true), face(t, 500, false), face(t, 400, false)];
   }
 
   async function ensureFonts() {
-    // accents are in the sample so the right glyphs are fetched before we draw
-    const sample = [st.masthead, st.headline, st.line1, st.line2, st.issue].join(' ')
-      .toUpperCase() + ' ÉÀÇÖ';
+    // both cases and the accents are in the sample, so every glyph we might draw is
+    // fetched for the exact weight before anything reaches the canvas
+    const typed = [st.masthead, st.headline, st.line1, st.line2, st.issue].join(' ');
+    const sample = typed + typed.toUpperCase() + ' ÉÀÇÖ';
     const specs = neededFaces().map((f) => f.spec(100)).filter((s) => !ready.has(s + sample));
     if (!specs.length) return;
     await Promise.all(specs.map(async (s) => {
@@ -89,18 +106,19 @@
 
   // --- text helpers ----------------------------------------------------------------
 
-  function inkWidth(text, f, size) {
-    ctx.font = f.at(size);
-    const m = ctx.measureText(text);
-    return Math.max(m.width, (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0));
-  }
-
-  /** Largest size (capped) at which `text` fits `maxW`. Metrics scale with size,
-   *  so one measurement at a probe size gives the answer. */
-  function fitWidth(text, f, maxW, maxSize) {
+  /** Largest size at which `text` fits both `maxW` across and `maxInkH` tall.
+   *  Metrics scale with size, so one measurement at a probe size gives the answer.
+   *  The height limit is what keeps a mixed-case masthead — taller, because of
+   *  ascenders and descenders — from taking over the cover. */
+  function fitBlock(text, f, maxW, maxInkH) {
     const probe = 200;
-    const ink = inkWidth(text, f, probe);
-    return ink ? Math.min(maxSize, (maxW / ink) * probe) : maxSize;
+    ctx.font = f.at(probe);
+    const m = ctx.measureText(text);
+    const wide = Math.max(m.width, (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0));
+    const tall = (m.actualBoundingBoxAscent || 0) + (m.actualBoundingBoxDescent || 0);
+    const byWidth = wide ? (maxW / wide) * probe : probe;
+    const byHeight = tall ? (maxInkH / tall) * probe : byWidth;
+    return Math.min(byWidth, byHeight);
   }
 
   /** Draw a line with its *ink top* at topY, so accents like É are never clipped.
@@ -184,10 +202,11 @@
   // --- the three layouts -----------------------------------------------------------
 
   function layoutClassic() {
-    const mast = st.masthead.toUpperCase();
+    const mast = mastText();
     const mf = face(st.font, st.weight, false);
     const top = 132;
-    const inkH = mast ? drawTop(mast, mf, fitWidth(mast, mf, INNER, 420), W / 2, top, 'center') : 0;
+    const inkH = mast ? drawTop(mast, mf, fitBlock(mast, mf, INNER, MAX_MAST_INK),
+                                W / 2, top, 'center') : 0;
 
     let y = top + inkH + 38;
     if (st.issue) {
@@ -202,17 +221,18 @@
     }
 
     if (st.headline) {
-      const hf = face(textFamily(), 400, true);
-      const { size, lines } = fitWrapped(st.headline, hf, INNER * 0.88, 126, 3, 50);
+      const hf = face(textFamily(), st.headlineWeight, true);
+      const { size, lines } = fitWrapped(headText(), hf, INNER * 0.88, 126, 3, 50);
       drawLinesBottom(lines, hf, size, M, H - M, size * 1.02, 'left');
     }
   }
 
   function layoutSide() {
-    const mast = st.masthead.toUpperCase();
+    const mast = mastText();
     const mf = face(st.font, st.weight, false);
     const top = 132;
-    const inkH = mast ? drawTop(mast, mf, fitWidth(mast, mf, INNER, 360), M, top, 'left') : 0;
+    const inkH = mast ? drawTop(mast, mf, fitBlock(mast, mf, INNER, MAX_MAST_INK),
+                                M, top, 'left') : 0;
 
     const lines = [st.line1, st.line2].filter(Boolean);
     let cy = Math.max(top + inkH + 110, H * 0.38);
@@ -230,24 +250,25 @@
     }
 
     if (st.headline) {
-      const hf = face(textFamily(), 700, false);
-      const { size, lines: hl } = fitWrapped(st.headline.toUpperCase(), hf, INNER, 94, 3, 42);
+      const hf = face(textFamily(), st.headlineWeight, false);
+      const { size, lines: hl } = fitWrapped(headText(), hf, INNER, 94, 3, 42);
       drawLinesBottom(hl, hf, size, M, H - M, size * 1.12, 'left');
     }
   }
 
   function layoutMinimal() {
-    const mast = st.masthead.toUpperCase();
+    const mast = mastText();
     if (mast) {
       const mf = face(st.font, st.weight, true);
-      const size = fitWidth(mast, mf, INNER * 0.9, 300);
+      const size = fitBlock(mast, mf, INNER * 0.9, MAX_MAST_INK * 0.85);
       ctx.font = mf.at(size);
       const m = ctx.measureText(mast);
       const inkH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
       drawTop(mast, mf, size, W / 2, Math.max(M, H * 0.46 - inkH / 2), 'center');
     }
-    const tail = st.headline || st.issue;
-    if (tail) drawTracked(tail.toUpperCase(), small(400), 38, W / 2, H - M - 48, 10, 'center');
+    const tail = st.headline ? headText() : st.issue.toUpperCase();
+    const tf = small(st.headline ? st.headlineWeight : 400);
+    if (tail) drawTracked(tail, tf, 38, W / 2, H - M - 48, 10, 'center');
   }
 
   // --- drawing ---------------------------------------------------------------------
@@ -376,7 +397,6 @@
       const sample = document.createElement('span');
       sample.className = 'fontsw-t';
       sample.style.fontFamily = `"${f.name}", Georgia, serif`;
-      sample.style.fontWeight = String(f.weights[f.weights.length - 1]);
       if (!f.italic) sample.style.fontStyle = 'normal';
       const name = document.createElement('span');
       name.className = 'fontsw-n';
@@ -397,26 +417,45 @@
   }
 
   function syncFontRow() {
-    const text = st.masthead.toUpperCase() || 'ABC';
+    const text = mastText() || 'Abc';
     for (const b of el('fontrow').children) {
-      b.querySelector('.fontsw-t').textContent = text;
+      const f = fontOf(b.dataset.font);
+      const sample = b.querySelector('.fontsw-t');
+      sample.textContent = text;
+      // each swatch previews at the weight you're actually using, where it has it
+      sample.style.fontWeight = String(snap(f, st.weight));
       b.setAttribute('aria-checked', String(b.dataset.font === st.font));
     }
-    const f = fontOf(st.font);
-    el('weights').hidden = f.weights.length < 2;
-    for (const b of el('weights').children) {
-      b.hidden = !f.weights.includes(Number(b.dataset.weight));
-      b.setAttribute('aria-checked', String(Number(b.dataset.weight) === st.weight));
+    syncWeight('mast', fontOf(st.font), st.weight);
+  }
+
+  /** Show a slider over the family's real axis, or just name the one weight it has. */
+  function syncWeight(prefix, f, value) {
+    const slider = el(prefix + '-weight');
+    const single = f.min === f.max;
+    el(prefix + '-weight-label').hidden = single;
+    el(prefix + '-weight-fixed').hidden = !single;
+    if (single) {
+      el(prefix + '-weight-fixed').textContent = `${f.name} comes in one weight (${f.min}).`;
+      return;
+    }
+    slider.min = String(f.min);
+    slider.max = String(f.max);
+    slider.value = String(snap(f, value));
+    el(prefix + '-weight-out').textContent = slider.value;
+  }
+
+  function syncRadios(id, key, value) {
+    for (const b of el(id).children) {
+      b.setAttribute('aria-checked', String(b.dataset[key] === value));
     }
   }
 
   function syncSegments() {
-    for (const b of el('layouts').children) {
-      b.setAttribute('aria-checked', String(b.dataset.layout === st.layout));
-    }
-    for (const b of el('colours').children) {
-      b.setAttribute('aria-checked', String(b.dataset.colour === st.colour));
-    }
+    syncRadios('layouts', 'layout', st.layout);
+    syncRadios('colours', 'colour', st.colour);
+    syncRadios('mast-case', 'case', st.mastheadCase);
+    syncRadios('head-case', 'case', st.headlineCase);
     el('layout-note').textContent = st.layout === 'minimal'
       ? 'Minimal shows the headline at the bottom, or the issue line when the headline is empty.'
       : '';
@@ -426,7 +465,7 @@
     el(id).addEventListener('input', () => {
       st[key] = el(id).value;
       if (key === 'issue') issueDirty = true;
-      if (key === 'masthead') syncFontRow();
+      if (key === 'masthead') syncFontRow();   // the swatches preview your own text
       render();
     });
   }
@@ -437,8 +476,10 @@
 
   function settingsOut() {
     return {
-      layout: st.layout, masthead: st.masthead, font: st.font, weight: st.weight,
-      textFont: st.textFont, headline: st.headline, line1: st.line1, line2: st.line2,
+      layout: st.layout, masthead: st.masthead, mastheadCase: st.mastheadCase,
+      font: st.font, weight: st.weight, textFont: st.textFont,
+      headlineCase: st.headlineCase, headlineWeight: st.headlineWeight,
+      headline: st.headline, line1: st.line1, line2: st.line2,
       issue: st.issue, colour: st.colour, scrim: st.scrim,
       zoom: st.zoom, offsetX: st.offsetX, offsetY: st.offsetY,
     };
@@ -450,10 +491,15 @@
     if (!s || typeof s !== 'object') return;
     if (LAYOUTS.includes(s.layout)) st.layout = s.layout;
     if (typeof s.masthead === 'string') st.masthead = s.masthead;
+    if (CASES.includes(s.mastheadCase)) st.mastheadCase = s.mastheadCase;
     if (FONTS.some((f) => f.name === s.font)) st.font = s.font;
-    if (Number.isFinite(s.weight)) st.weight = nearest(fontOf(st.font).weights, s.weight);
-    else st.weight = fontOf(st.font).weights[fontOf(st.font).weights.length - 1];
+    st.weight = snap(fontOf(st.font), Number.isFinite(s.weight) ? s.weight : 900);
     st.textFont = FONTS.some((f) => f.name === s.textFont) ? s.textFont : null;
+    // covers saved before these two controls existed keep the look they were saved with
+    st.headlineCase = CASES.includes(s.headlineCase) ? s.headlineCase
+                    : (s.layout === 'classic' ? 'typed' : 'upper');
+    st.headlineWeight = snap(fontOf(textFamily()),
+      Number.isFinite(s.headlineWeight) ? s.headlineWeight : (s.layout === 'side' ? 700 : 400));
     for (const k of ['headline', 'line1', 'line2', 'issue']) {
       if (typeof s[k] === 'string') st[k] = s[k];
     }
@@ -475,6 +521,7 @@
     el('scrim').checked = st.scrim;
     el('zoom').value = String(st.zoom);
     syncFontRow();
+    syncWeight('head', fontOf(textFamily()), st.headlineWeight);
     syncSegments();
   }
 
@@ -588,16 +635,43 @@
     const b = e.target.closest('.fontsw');
     if (!b) return;
     st.font = b.dataset.font;
-    st.weight = nearest(fontOf(st.font).weights, st.weight);
+    st.weight = snap(fontOf(st.font), st.weight);
+    st.headlineWeight = snap(fontOf(textFamily()), st.headlineWeight);
     syncFontRow();
+    syncWeight('head', fontOf(textFamily()), st.headlineWeight);
     render();
   });
 
-  el('weights').addEventListener('click', (e) => {
+  el('mast-weight').addEventListener('input', () => {
+    st.weight = Number(el('mast-weight').value);
+    el('mast-weight-out').textContent = String(st.weight);
+    syncFontRow();
+    if (!st.textFont) {   // the headline follows the masthead family, not its weight
+      syncWeight('head', fontOf(textFamily()), st.headlineWeight);
+    }
+    render();
+  });
+
+  el('head-weight').addEventListener('input', () => {
+    st.headlineWeight = Number(el('head-weight').value);
+    el('head-weight-out').textContent = String(st.headlineWeight);
+    render();
+  });
+
+  el('mast-case').addEventListener('click', (e) => {
     const b = e.target.closest('.seg-b');
     if (!b) return;
-    st.weight = Number(b.dataset.weight);
+    st.mastheadCase = b.dataset.case;
     syncFontRow();
+    syncSegments();
+    render();
+  });
+
+  el('head-case').addEventListener('click', (e) => {
+    const b = e.target.closest('.seg-b');
+    if (!b) return;
+    st.headlineCase = b.dataset.case;
+    syncSegments();
     render();
   });
 
@@ -611,6 +685,8 @@
 
   el('textfont').addEventListener('change', () => {
     st.textFont = el('textfont').value || null;
+    st.headlineWeight = snap(fontOf(textFamily()), st.headlineWeight);
+    syncWeight('head', fontOf(textFamily()), st.headlineWeight);
     render();
   });
 
