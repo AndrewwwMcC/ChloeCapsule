@@ -412,6 +412,13 @@ def _ext(name: str) -> str:
     return ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
 
 
+def duplicate_of(m: dict) -> dict:
+    """Answer for a file we already have — same fields as a fresh ingest, so the
+    uploader can link a skipped file to where its twin already sits."""
+    return {"duplicate": True, "id": str(m["id"]), "kind": m["kind"],
+            "taken_at": m["taken_at"].isoformat()}
+
+
 # --- video posters that were missed (no ffmpeg at upload time) -------------------
 
 def make_poster(m: dict) -> bool:
@@ -472,8 +479,8 @@ async def upload_init(request: Request):
     kind = media.kind_for(name, mime)
     if not kind:
         return JSONResponse({"error": "Not a photo or video"}, status_code=415)
-    if await run_in_threadpool(db.find_by_name_size, name, size):
-        return {"duplicate": True}
+    if (twin := await run_in_threadpool(db.find_by_name_size, name, size)):
+        return duplicate_of(twin)
     media_id = str(uuid.uuid4())
     key = f"originals/{media_id}{_ext(name)}"
     s3_id = await run_in_threadpool(storage.mp_start, key, mime)
@@ -509,9 +516,9 @@ def upload_complete(request: Request, media_id: str):
         raise HTTPException(404, "Upload expired — try again")
     storage.mp_finish(up["key"], up["s3_id"], up["parts"])
     sha = up["sha"].hexdigest()
-    if db.find_by_sha(sha):
+    if (twin := db.find_by_sha(sha)):
         storage.delete(up["key"])
-        return {"duplicate": True}
+        return duplicate_of(twin)
     return ingest(media_id=media_id, key=up["key"], kind=up["kind"], name=up["name"],
                   size=up["size"], mime=up["mime"], sha=sha,
                   last_modified_ms=up["last_modified"])
@@ -538,16 +545,19 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
     if not kind:
         raise HTTPException(415, "Not a photo or video")
 
-    with tempfile.NamedTemporaryFile(suffix=_ext(name), delete=True) as tmp:
+    # delete=False and an explicit unlink: on Windows nothing else can open the file
+    # while NamedTemporaryFile still holds it, and storage/ffmpeg both need to.
+    tmp = tempfile.NamedTemporaryFile(suffix=_ext(name), delete=False)
+    try:
         sha, size = hashlib.sha256(), 0
         while chunk := file.file.read(1024 * 1024):
             sha.update(chunk)
             size += len(chunk)
             tmp.write(chunk)
-        tmp.flush()
+        tmp.close()
         digest = sha.hexdigest()
-        if db.find_by_sha(digest):
-            return {"duplicate": True}
+        if (twin := db.find_by_sha(digest)):
+            return duplicate_of(twin)
         media_id = str(uuid.uuid4())
         key = f"originals/{media_id}{_ext(name)}"
         storage.put_file(key, tmp.name, mime)
@@ -562,6 +572,9 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
                 taken_dt = None
         return ingest(media_id=media_id, key=key, kind=kind, name=name, size=size, mime=mime,
                       sha=digest, taken_override=taken_dt, local_path=tmp.name)
+    finally:
+        tmp.close()
+        Path(tmp.name).unlink(missing_ok=True)
 
 
 # --- admin: delete, make a missing poster ----------------------------------------

@@ -165,7 +165,8 @@ def find_by_sha(sha: str) -> dict | None:
 def find_by_name_size(name: str, size: int) -> dict | None:
     with _conn() as conn:
         return _one(conn.execute(
-            _sql("SELECT id FROM media WHERE original_name = %s AND bytes = %s LIMIT 1"), (name, size)))
+            _sql("SELECT id, kind, taken_at FROM media WHERE original_name = %s AND bytes = %s "
+                 "LIMIT 1"), (name, size)))
 
 
 def get_media(media_id: str) -> dict | None:

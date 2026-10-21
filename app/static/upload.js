@@ -92,6 +92,10 @@
                               : `See ${whereLabel(p)} in the album`;
   }
 
+  function alreadyLabel(p) {
+    return `Already in the album — see ${whereLabel(p)}`;
+  }
+
   // --- the summary ----------------------------------------------------------------
 
   function showSummary() {
@@ -230,7 +234,7 @@
         return r.json();
       });
       if (init.unsupported) throw new Error('unsupported');
-      if (init.duplicate) return finish(job, 'dup');
+      if (init.duplicate) return finish(job, 'dup', init);
 
       const size = init.chunk_size || CHUNK;
       const parts = Math.max(1, Math.ceil(file.size / size));
@@ -265,17 +269,16 @@
     }
     const p = job.el.querySelector('.prog');
     if (p) p.remove();
-    if (state === 'done') {
-      const p2 = placed(job);
-      if (p2) {
-        const a = document.createElement('a');
-        a.className = 'q-go';
-        a.href = linkTo(p2);
-        a.setAttribute('aria-label', goLabel(p2));
-        job.el.append(a);
-      }
-      job.el.insertAdjacentHTML('beforeend', `<span class="badge">${CHECK}</span>`);
+    // both new files and skipped duplicates link to where the photo sits in the album
+    const where = state === 'done' || state === 'dup' ? placed(job) : null;
+    if (where) {
+      const a = document.createElement('a');
+      a.className = 'q-go';
+      a.href = linkTo(where);
+      a.setAttribute('aria-label', state === 'dup' ? alreadyLabel(where) : goLabel(where));
+      job.el.append(a);
     }
+    if (state === 'done') job.el.insertAdjacentHTML('beforeend', `<span class="badge">${CHECK}</span>`);
     if (state === 'dup') job.el.classList.add('dup');
     if (state === 'failed') job.el.classList.add('failed');
   }

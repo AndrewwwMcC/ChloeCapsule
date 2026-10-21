@@ -325,7 +325,8 @@ button { font: inherit; color: inherit; }
 .q .q-go { position: absolute; inset: 0; }
 .q .q-go:focus-visible { outline-offset: -2px; }  /* the tile clips an outset ring */
 .q.dup::after, .q.failed::after {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600; text-align: center; padding: 4px; background: rgba(250,250,248,.82);
 }
 .q.dup::after { content: "Already there"; color: var(--muted); }
