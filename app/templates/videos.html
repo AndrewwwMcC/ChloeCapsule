@@ -26,7 +26,7 @@
     <div class="clips">
       {% for c in g.clips %}
       <button class="clip" type="button" data-id="{{ c.id }}" data-src="{{ c.src }}" data-mime="{{ c.mime }}"
-              data-poster="{{ c.poster_large }}" data-date="{{ c.date }}" data-age="{{ c.age }}"
+              data-poster="{{ c.poster_large or '' }}" data-date="{{ c.date }}" data-age="{{ c.age }}"
               aria-label="Play video from {{ c.date }}{% if c.len %}, {{ c.len }}{% endif %}">
         <div class="thumb">
           {% if c.poster %}<img src="{{ c.poster }}" alt="" loading="lazy" decoding="async">{% endif %}
@@ -49,6 +49,9 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
       </a>
       {% if role == 'admin' %}
+      <button class="icon-btn" id="v-poster" type="button" aria-label="Make poster" title="Make poster">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15l-5-5-8 8"/></svg>
+      </button>
       <button class="icon-btn" id="v-delete" type="button" aria-label="Delete video">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
       </button>
@@ -63,4 +66,4 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/videos.js?v=1"></script>{% endblock %}
+{% block scripts %}<script src="/static/videos.js?v=2"></script>{% endblock %}

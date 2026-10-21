@@ -35,6 +35,11 @@ def kind_for(filename: str, content_type: str | None) -> str | None:
     return None
 
 
+def have_ffmpeg() -> bool:
+    """Posters and durations need both tools; without them videos are kept as-is."""
+    return bool(shutil.which("ffprobe") and shutil.which("ffmpeg"))
+
+
 def _webp(img: Image.Image, edge: int, quality: int) -> bytes:
     copy = img.copy()
     copy.thumbnail((edge, edge), Image.LANCZOS)
@@ -112,7 +117,7 @@ def _video_date(fmt_tags: dict) -> datetime | None:
 def process_video(source: str) -> dict:
     """`source` is a local path or a signed URL — ffmpeg reads only what it needs.
     Without ffmpeg installed (e.g. a laptop), the video is kept but has no poster."""
-    if not shutil.which("ffprobe") or not shutil.which("ffmpeg"):
+    if not have_ffmpeg():
         return {"taken_at": None, "width": None, "height": None, "duration": None,
                 "display": None, "thumb": None}
     probe = subprocess.run(

@@ -121,6 +121,15 @@ def insert_media(row: dict) -> None:
         conn.execute(_sql(f"INSERT INTO media ({cols}) VALUES ({vals})"), row)
 
 
+def update_media(media_id: str, fields: dict) -> None:
+    """Change some columns of one item (used when a missing video poster is made later)."""
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = %({k})s" for k in fields)
+    with _conn() as conn:
+        conn.execute(_sql(f"UPDATE media SET {sets} WHERE id = %(_id)s"), {**fields, "_id": media_id})
+
+
 def find_by_sha(sha: str) -> dict | None:
     with _conn() as conn:
         return _one(conn.execute(_sql("SELECT * FROM media WHERE sha256 = %s"), (sha,)))
@@ -157,6 +166,14 @@ def media_in_year(kind: str, year: int) -> list[dict]:
             _sql("SELECT * FROM media WHERE kind = %s AND taken_at >= %s AND taken_at < %s "
                  "ORDER BY taken_at DESC"),
             (kind, datetime(year, 1, 1), datetime(year + 1, 1, 1))))
+
+
+def videos_without_poster() -> list[dict]:
+    """Videos uploaded while ffmpeg was unavailable, so they never got a poster frame."""
+    with _conn() as conn:
+        return _rows(conn.execute(_sql(
+            "SELECT * FROM media WHERE kind = 'video' AND (thumb_key IS NULL OR thumb_key = '') "
+            "ORDER BY taken_at DESC")))
 
 
 def all_media(kind: str) -> list[dict]:

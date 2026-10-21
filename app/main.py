@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import tempfile
 import threading
 import time
@@ -17,6 +18,8 @@ from fastapi.templating import Jinja2Templates
 from . import auth, db, media, storage
 from .config import settings
 
+log = logging.getLogger("uvicorn.error")  # the logger uvicorn already prints
+
 HERE = Path(__file__).parent
 CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB per request keeps every upload well under proxy limits
 MONTHS = ["January", "February", "March", "April", "May", "June", "July",
@@ -27,6 +30,7 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 async def lifespan(_app: FastAPI):
     db.init()
     threading.Thread(target=storage.abort_stale_uploads, daemon=True).start()
+    threading.Thread(target=backfill_posters, daemon=True).start()
     yield
     db.close()
 
@@ -308,6 +312,52 @@ def _ext(name: str) -> str:
     return ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
 
 
+# --- video posters that were missed (no ffmpeg at upload time) -------------------
+
+def make_poster(m: dict) -> bool:
+    """Grab a poster frame for one video and fill in what ffprobe knows.
+    Returns False when ffmpeg can't get a frame out of it. Never touches taken_at."""
+    media_id = str(m["id"])
+    result = media.process_video(storage.ffmpeg_source(m["original_key"]))
+    if not result["thumb"]:
+        return False
+
+    fields = {"thumb_key": f"thumb/{media_id}.webp"}
+    storage.put(fields["thumb_key"], result["thumb"], "image/webp")
+    if result["display"]:
+        fields["display_key"] = f"display/{media_id}.webp"
+        storage.put(fields["display_key"], result["display"], "image/webp")
+    for col in ("width", "height", "duration"):
+        if result.get(col) and not m.get(col):
+            fields[col] = result[col]
+
+    db.update_media(media_id, fields)
+    return True
+
+
+def backfill_posters() -> None:
+    """On startup: give a poster to any video that never got one."""
+    try:
+        rows = db.videos_without_poster()
+        if not rows:
+            return
+        if not media.have_ffmpeg():
+            log.warning("%d video(s) have no poster; install ffmpeg to make them.", len(rows))
+            return
+        fixed = 0
+        for m in rows:
+            try:
+                if make_poster(m):
+                    fixed += 1
+                else:
+                    log.warning("No frame came out of %s", m["original_name"] or m["id"])
+            except Exception as exc:
+                log.warning("Poster failed for %s: %s", m["original_name"] or m["id"], exc)
+        log.info("Made posters for %d of %d video(s) that were missing one.", fixed, len(rows))
+    except Exception as exc:  # never let startup housekeeping take the site down
+        log.warning("Poster backfill stopped: %s", exc)
+
+
 # --- chunked upload API (admin, from the browser) --------------------------------
 
 UPLOADS: dict[str, dict] = {}
@@ -414,7 +464,26 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
                       sha=digest, taken_override=taken_dt, local_path=tmp.name)
 
 
-# --- admin: delete ---------------------------------------------------------------
+# --- admin: delete, make a missing poster ----------------------------------------
+
+@app.post("/api/media/{media_id}/poster")
+def remake_poster(request: Request, media_id: uuid.UUID):
+    auth.require_admin(request)
+    m = db.get_media(str(media_id))
+    if not m:
+        raise HTTPException(404)
+    if m["kind"] != "video":
+        raise HTTPException(400, "Only videos have posters")
+    if not media.have_ffmpeg():
+        raise HTTPException(503, "ffmpeg isn't available here")
+    try:
+        made = make_poster(m)
+    except Exception as exc:
+        raise HTTPException(500, f"Couldn't read the video: {type(exc).__name__}")
+    if not made:
+        raise HTTPException(422, "ffmpeg couldn't get a frame out of this video")
+    return {"ok": True}
+
 
 @app.delete("/api/media/{media_id}")
 def delete_item(request: Request, media_id: uuid.UUID):

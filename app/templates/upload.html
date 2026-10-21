@@ -14,6 +14,18 @@
 
   <div class="bar" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
   <div class="status" id="status" aria-live="polite"></div>
+
+  <section class="summary" id="summary" aria-labelledby="sum-head" aria-live="polite" hidden>
+    <h2 id="sum-head"></h2>
+    <p class="sum-where" id="sum-where" hidden></p>
+    <ul class="sum-failed" id="sum-failed" hidden></ul>
+    <div class="sum-actions">
+      <a class="btn primary big" id="sum-go" href="/photos" hidden>See them in the album</a>
+      <button class="btn big" id="sum-retry" type="button" hidden>Retry failed</button>
+      <button class="btn big" id="sum-more" type="button">Upload more</button>
+    </div>
+  </section>
+
   <div class="queue" id="queue"></div>
 
   <div class="notes">
@@ -28,4 +40,4 @@
   </div>
 </main>
 {% endblock %}
-{% block scripts %}<script>window.CHUNK_SIZE = {{ chunk_size }};</script><script src="/static/upload.js?v=1"></script>{% endblock %}
+{% block scripts %}<script>window.CHUNK_SIZE = {{ chunk_size }};</script><script src="/static/upload.js?v=2"></script>{% endblock %}

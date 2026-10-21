@@ -1,4 +1,5 @@
 // Chunked uploads: each file is sent in pieces, two files at a time, with retries.
+// When the queue empties, the status line gives way to a summary of where everything went.
 (function () {
   const input = document.getElementById('files');
   const drop = document.getElementById('drop');
@@ -6,8 +7,17 @@
   const bar = document.getElementById('bar');
   const barWrap = bar.parentElement;
   const statusEl = document.getElementById('status');
+  const summaryEl = document.getElementById('summary');
+  const sumHead = document.getElementById('sum-head');
+  const sumWhere = document.getElementById('sum-where');
+  const sumFailed = document.getElementById('sum-failed');
+  const sumGo = document.getElementById('sum-go');
+  const sumRetry = document.getElementById('sum-retry');
+  const sumMore = document.getElementById('sum-more');
   const CHUNK = window.CHUNK_SIZE || 16 * 1024 * 1024;
   const CONCURRENT = 2;
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
 
   const jobs = [];
   let running = 0;
@@ -20,6 +30,8 @@
 
   function addFiles(list) {
     const files = Array.from(list).filter((f) => f.size > 0);
+    if (!files.length) return;
+    hideSummary();
     for (const f of files) {
       const el = document.createElement('div');
       el.className = 'q waiting';
@@ -54,8 +66,107 @@
     if (videos) msg += ` · ${videos} video${videos === 1 ? '' : 's'}`;
     if (dup) msg += ` · ${dup} already there`;
     if (failed) msg += ` · ${failed} failed`;
-    if (!running && done + dup + failed === jobs.length) msg += ' — all finished.';
     statusEl.textContent = msg;
+    if (!running && !jobs.some((j) => j.state === 'waiting')) showSummary();
+  }
+
+  // --- where a finished file landed ----------------------------------------------
+
+  function placed(job) {
+    const m = /^(\d{4})-(\d{2})/.exec(job.takenAt || '');
+    if (!m) return null;
+    return { kind: job.kind === 'video' ? 'video' : 'photo', year: +m[1], month: +m[2] };
+  }
+
+  function linkTo(p) {
+    return p.kind === 'video' ? `/videos?year=${p.year}`
+                              : `/photos/${p.year}#${MONTHS[p.month - 1].toLowerCase()}`;
+  }
+
+  function whereLabel(p) {
+    return `${MONTHS[p.month - 1]} ${p.year}`;
+  }
+
+  function goLabel(p) {
+    return p.kind === 'video' ? `See the ${whereLabel(p)} videos`
+                              : `See ${whereLabel(p)} in the album`;
+  }
+
+  // --- the summary ----------------------------------------------------------------
+
+  function showSummary() {
+    const added = jobs.filter((j) => j.state === 'done');
+    const dup = jobs.filter((j) => j.state === 'dup').length;
+    const failed = jobs.filter((j) => j.state === 'failed');
+
+    const head = [];
+    if (added.length) head.push(`${added.length} added`);
+    if (dup) head.push(`${dup} already there`);
+    if (failed.length) head.push(`${failed.length} failed`);
+    sumHead.textContent = head.join(' · ') || 'Nothing to add';
+
+    // one group per kind and month, photos first, oldest month first
+    const groups = new Map();
+    for (const job of added) {
+      const p = placed(job);
+      if (!p) continue;
+      const key = `${p.kind}-${p.year}-${p.month}`;
+      const g = groups.get(key) || Object.assign({ n: 0 }, p);
+      g.n++;
+      groups.set(key, g);
+    }
+    const list = Array.from(groups.values()).sort((a, b) =>
+      (a.kind === b.kind ? 0 : a.kind === 'photo' ? -1 : 1) || a.year - b.year || a.month - b.month);
+
+    sumWhere.textContent = '';
+    list.forEach((g, i) => {
+      if (i) sumWhere.append(' · ');
+      const a = document.createElement('a');
+      a.href = linkTo(g);
+      a.textContent = g.kind === 'video'
+        ? `${g.n} video${g.n === 1 ? '' : 's'} in ${whereLabel(g)}`
+        : `${g.n} in ${whereLabel(g)}`;
+      sumWhere.append(a);
+    });
+    sumWhere.hidden = !list.length;
+
+    sumFailed.textContent = '';
+    for (const job of failed) {
+      const li = document.createElement('li');
+      li.textContent = job.file.name;
+      sumFailed.append(li);
+    }
+    sumFailed.hidden = !failed.length;
+    sumRetry.hidden = !failed.length;
+
+    // the primary button goes where the most new photos landed
+    const best = list.filter((g) => g.kind === 'photo').sort((a, b) => b.n - a.n)[0] || list[0];
+    sumGo.hidden = !best;
+    if (best) sumGo.href = linkTo(best);
+
+    statusEl.hidden = true;
+    barWrap.hidden = true;
+    summaryEl.hidden = false;
+  }
+
+  function hideSummary() {
+    summaryEl.hidden = true;
+    statusEl.hidden = false;
+    barWrap.hidden = false;
+  }
+
+  function retryFailed() {
+    for (const job of jobs) {
+      if (job.state !== 'failed') continue;
+      job.state = 'waiting';
+      job.sent = 0;
+      job.el.classList.remove('failed');
+      job.el.classList.add('waiting');
+      job.el.insertAdjacentHTML('beforeend', '<div class="prog"><div></div></div>');
+    }
+    hideSummary();
+    render();
+    pump();
   }
 
   async function keepAwake(on) {
@@ -137,17 +248,34 @@
       const done = await fetch(`/api/upload/${init.id}/complete`, { method: 'POST' });
       if (!done.ok) throw new Error(done.status);
       const result = await done.json();
-      finish(job, result.duplicate ? 'dup' : 'done');
+      finish(job, result.duplicate ? 'dup' : 'done', result);
     } catch (e) {
       finish(job, 'failed');
     }
   }
 
-  function finish(job, state) {
+  function finish(job, state, result) {
     job.state = state;
+    if (result && result.id) {
+      job.id = result.id;
+      job.kind = result.kind;
+      job.takenAt = result.taken_at;
+      job.el.dataset.mediaId = result.id;
+      job.el.dataset.takenAt = result.taken_at || '';
+    }
     const p = job.el.querySelector('.prog');
     if (p) p.remove();
-    if (state === 'done') job.el.insertAdjacentHTML('beforeend', `<span class="badge">${CHECK}</span>`);
+    if (state === 'done') {
+      const p2 = placed(job);
+      if (p2) {
+        const a = document.createElement('a');
+        a.className = 'q-go';
+        a.href = linkTo(p2);
+        a.setAttribute('aria-label', goLabel(p2));
+        job.el.append(a);
+      }
+      job.el.insertAdjacentHTML('beforeend', `<span class="badge">${CHECK}</span>`);
+    }
     if (state === 'dup') job.el.classList.add('dup');
     if (state === 'failed') job.el.classList.add('failed');
   }
@@ -160,6 +288,8 @@
     drop.classList.remove('over');
     addFiles(e.dataTransfer.files);
   });
+  sumRetry.addEventListener('click', retryFailed);
+  sumMore.addEventListener('click', () => location.reload());
   window.addEventListener('beforeunload', (e) => {
     if (running || jobs.some((j) => j.state === 'waiting')) { e.preventDefault(); e.returnValue = ''; }
   });

@@ -6,6 +6,7 @@
   const when = document.getElementById('v-when');
   const dl = document.getElementById('v-download');
   const del = document.getElementById('v-delete');
+  const poster = document.getElementById('v-poster');
   const stage = document.getElementById('v-stage');
   let currentBtn = null;
 
@@ -49,6 +50,26 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && viewer.classList.contains('open')) close();
   });
+
+  if (poster) {
+    poster.addEventListener('click', async () => {
+      if (!currentBtn) return;
+      poster.disabled = true;
+      try {
+        const res = await fetch('/api/media/' + currentBtn.dataset.id + '/poster', { method: 'POST' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          alert(body.detail || 'Couldn’t make a poster for this one.');
+          return;
+        }
+        location.reload();
+      } catch (_) {
+        alert('Couldn’t make a poster for this one.');
+      } finally {
+        poster.disabled = false;
+      }
+    });
+  }
 
   if (del) {
     del.addEventListener('click', async () => {
