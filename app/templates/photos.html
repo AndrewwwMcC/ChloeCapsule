@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{% if year %}{{ year }} · {% endif %}{{ site_name }}{% endblock %}
+{% block main %}
+<div class="wrap">
+{% if not years %}
+  <section class="empty">
+    <h1>Nothing here yet</h1>
+    {% if role == 'admin' %}
+    <p>Upload the first photos and they'll be sorted by the day they were taken.</p>
+    <a class="btn primary big" href="/upload">Upload photos</a>
+    {% else %}
+    <p>Photos will appear here once they're added.</p>
+    {% endif %}
+  </section>
+{% else %}
+<div class="cols">
+  <aside class="rail" aria-label="Years">
+    <div class="eyebrow">Years</div>
+    <div class="years">
+      {% for y in years %}
+      <a class="year" href="/photos/{{ y.year }}" {% if y.year == year %}aria-current="true"{% endif %}>
+        <span>{{ y.year }}</span><span>{{ y.age or y.n }}</span>
+      </a>
+      {% if y.year == year and months %}
+      <div class="months">
+        {% for m in months %}<a href="#{{ m.anchor }}"><span>{{ m.name }}</span><span>{{ m.n }}</span></a>{% endfor %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="page-head">
+      <div>
+        <h1>{{ year }}</h1>
+        <p>{% if age_range %}{{ age_range }} · {% endif %}{{ '{:,}'.format(total) }} photo{{ '' if total == 1 else 's' }}{% if video_total %} · <a href="/videos?year={{ year }}">{{ video_total }} video{{ '' if video_total == 1 else 's' }}</a>{% endif %}</p>
+      </div>
+    </div>
+
+    {% if not months %}
+      <p class="empty">No photos from {{ year }}.</p>
+    {% endif %}
+
+    {% for m in months %}
+    <section class="month" id="{{ m.anchor }}">
+      <div class="month-head"><h2>{{ m.name }}</h2><span>{{ m.count }}</span></div>
+      <div class="mosaic">
+        {% for t in m.tiles %}
+        <a class="tile {{ t.shape }}" href="{{ t.full }}" data-index="{{ t.index }}" data-id="{{ t.id }}"
+           data-full="{{ t.full }}" data-date="{{ t.date }}" data-age="{{ t.age }}" aria-label="Photo from {{ t.date }}">
+          <img src="{{ t.thumb }}" alt="" loading="lazy" decoding="async">
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </main>
+</div>
+{% endif %}
+</div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Photo viewer">
+  <div class="viewer-bar">
+    <div class="when" id="v-when"></div>
+    <div class="viewer-actions">
+      <a class="icon-btn" id="v-download" href="#" aria-label="Download original">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      </a>
+      {% if role == 'admin' %}
+      <button class="icon-btn" id="v-delete" type="button" aria-label="Delete photo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+      </button>
+      {% endif %}
+      <button class="icon-btn" id="v-close" type="button" aria-label="Close">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="viewer-stage" id="v-stage">
+    <img id="v-img" alt="">
+    <button class="icon-btn viewer-nav prev" id="v-prev" type="button" aria-label="Previous photo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <button class="icon-btn viewer-nav next" id="v-next" type="button" aria-label="Next photo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/gallery.js?v=1"></script>{% endblock %}

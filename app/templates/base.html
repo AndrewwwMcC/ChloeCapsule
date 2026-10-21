@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#FAFAF8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="{{ site_name }}">
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
+<link rel="stylesheet" href="/static/style.css?v=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231A1A18'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23FAFAF8' stroke-width='2.5'/%3E%3C/svg%3E">
+</head>
+<body>
+{% block body %}
+<header class="top">
+  <a class="wordmark" href="/photos">{{ site_name }}<em> capsule</em></a>
+  <nav class="nav" aria-label="Sections">
+    <a class="pill" href="/photos" {% if nav == 'photos' %}aria-current="page"{% endif %}>Photos</a>
+    <a class="pill" href="/videos" {% if nav == 'videos' %}aria-current="page"{% endif %}>Videos</a>
+  </nav>
+  {% if role == 'admin' %}
+  <a class="btn primary" href="/upload">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    Upload
+  </a>
+  {% endif %}
+</header>
+{% block main %}{% endblock %}
+<footer class="foot">
+  <span>Private album · please don't share links outside the family</span>
+  <a href="/logout">Log out</a>
+</footer>
+{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

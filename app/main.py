@@ -1,0 +1,411 @@
+import hashlib
+import tempfile
+import threading
+import time
+import uuid
+from contextlib import asynccontextmanager
+from datetime import date, datetime
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from . import auth, db, media, storage
+from .config import settings
+
+HERE = Path(__file__).parent
+CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB per request keeps every upload well under proxy limits
+MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December"]
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    db.init()
+    threading.Thread(target=storage.abort_stale_uploads, daemon=True).start()
+    yield
+    db.pool.close()
+
+
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+templates = Jinja2Templates(directory=HERE / "templates")
+
+
+# --- helpers ---------------------------------------------------------------------
+
+def age_label(d: date | datetime) -> str | None:
+    """'born', '4 mo', '2 yrs 3 mo' — needs BIRTH_DATE."""
+    b = settings.birth_date
+    if not b:
+        return None
+    d = d.date() if isinstance(d, datetime) else d
+    months = (d.year - b.year) * 12 + (d.month - b.month) - (1 if d.day < b.day else 0)
+    if months < 0:
+        return None
+    if months == 0:
+        return "newborn"
+    if months < 12:
+        return f"{months} mo"
+    years, rest = divmod(months, 12)
+    label = f"{years} yr" if years == 1 else f"{years} yrs"
+    return f"{label} {rest} mo" if rest else label
+
+
+def year_age_range(year: int) -> str | None:
+    b = settings.birth_date
+    if not b:
+        return None
+    start = max(date(year, 1, 1), b)
+    end = min(date(year, 12, 31), date.today())
+    if end < b:
+        return None
+    a, z = (start - b).days // 365, (end - b).days // 365
+    if year == b.year:
+        return "The year she arrived" if z == 0 else f"Born, to age {z}"
+    return f"Age {a}" if a == z else f"Age {a} to {z}"
+
+
+def rail_age(year: int) -> str | None:
+    b = settings.birth_date
+    if not b or year < b.year:
+        return None
+    return "born" if year == b.year else f"age {year - b.year}"
+
+
+def ctx(request: Request, **extra) -> dict:
+    return {"request": request, "site_name": settings.site_name,
+            "role": auth.role_of(request), **extra}
+
+
+def needs_login(request: Request) -> RedirectResponse | None:
+    if not auth.role_of(request):
+        return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
+    return None
+
+
+def no_store(resp):
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def fmt_duration(sec: float | None) -> str:
+    if not sec:
+        return ""
+    sec = int(round(sec))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+# --- pages -----------------------------------------------------------------------
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots():
+    return "User-agent: *\nDisallow: /\n"
+
+
+@app.get("/healthz", response_class=PlainTextResponse)
+def healthz():
+    return "ok"
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    return no_store(templates.TemplateResponse(request, "login.html", ctx(request, next=next, error=None)))
+
+
+@app.post("/login")
+def login(request: Request, password: str = Form(...), remember: str | None = Form(None),
+          next: str = Form("/")):
+    ip = auth.client_ip(request)
+    if auth.too_many_attempts(ip):
+        return no_store(templates.TemplateResponse(
+            request, "login.html", ctx(request, next=next, error="Too many tries. Wait 15 minutes."),
+            status_code=429))
+    role = auth.check_password(password)
+    if not role:
+        auth.record_failure(ip)
+        time.sleep(0.6)
+        return no_store(templates.TemplateResponse(
+            request, "login.html", ctx(request, next=next, error="That password didn't work."),
+            status_code=401))
+    target = next if next.startswith("/") and not next.startswith("//") else "/"
+    resp = RedirectResponse(target, status_code=303)
+    resp.set_cookie(auth.COOKIE, auth.make_cookie(role), httponly=True, samesite="lax",
+                    secure=settings.secure_cookies,
+                    max_age=auth.REMEMBER_SECONDS if remember else None)
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(auth.COOKIE)
+    return resp
+
+
+@app.get("/")
+def home(request: Request):
+    if (r := needs_login(request)):
+        return r
+    return RedirectResponse("/photos", status_code=303)
+
+
+@app.get("/photos", response_class=HTMLResponse)
+def photos_latest(request: Request):
+    if (r := needs_login(request)):
+        return r
+    years = db.year_counts("photo")
+    if years:
+        return RedirectResponse(f"/photos/{years[0]['year']}", status_code=303)
+    return no_store(templates.TemplateResponse(request, "photos.html", ctx(
+        request, nav="photos", years=[], year=None, months=[], total=0, video_total=0, age_range=None)))
+
+
+@app.get("/photos/{year}", response_class=HTMLResponse)
+def photos_year(request: Request, year: int):
+    if (r := needs_login(request)):
+        return r
+    years = [{"year": y["year"], "n": y["n"], "age": rail_age(y["year"])} for y in db.year_counts("photo")]
+    items = db.media_in_year("photo", year)
+    video_total = sum(y["n"] for y in db.year_counts("video") if y["year"] == year)
+
+    months: dict[int, list] = {}
+    for m in items:
+        months.setdefault(m["taken_at"].month, []).append(m)
+
+    month_blocks, index = [], 0
+    for month_num in sorted(months, reverse=True):
+        tiles = []
+        for i, m in enumerate(months[month_num]):
+            w, h = m["width"] or 1, m["height"] or 1
+            ratio = w / h
+            shape = "wide" if ratio >= 1.45 else "tall" if ratio <= 0.8 else ("big" if i % 9 == 0 else "")
+            when = m["taken_at"]
+            tiles.append({
+                "id": str(m["id"]), "index": index, "shape": shape,
+                "thumb": storage.url(m["thumb_key"]), "full": storage.url(m["display_key"]),
+                "date": f"{when.strftime('%b')} {when.day}, {when.year}",
+                "age": age_label(when) or "",
+            })
+            index += 1
+        n = len(tiles)
+        month_blocks.append({"name": MONTHS[month_num - 1], "anchor": MONTHS[month_num - 1].lower(),
+                             "count": f"{n} photo" if n == 1 else f"{n} photos", "n": n, "tiles": tiles})
+
+    return no_store(templates.TemplateResponse(request, "photos.html", ctx(
+        request, nav="photos", years=years, year=year, months=month_blocks, total=len(items),
+        video_total=video_total, age_range=year_age_range(year))))
+
+
+@app.get("/videos", response_class=HTMLResponse)
+def videos(request: Request, year: int | None = None):
+    if (r := needs_login(request)):
+        return r
+    years = [y["year"] for y in db.year_counts("video")]
+    items = db.media_in_year("video", year) if year else db.all_media("video")
+    groups: list[dict] = []
+    for m in items:
+        when = m["taken_at"]
+        label = f"{MONTHS[when.month - 1]} {when.year}"
+        if not groups or groups[-1]["name"] != label:
+            groups.append({"name": label, "clips": []})
+        groups[-1]["clips"].append({
+            "id": str(m["id"]), "poster": storage.url(m["thumb_key"]),
+            "poster_large": storage.url(m["display_key"]), "src": storage.url(m["original_key"]),
+            "mime": m["mime"] or "video/mp4", "len": fmt_duration(m["duration"]),
+            "date": f"{when.strftime('%b')} {when.day}", "age": age_label(when) or "",
+        })
+    for g in groups:
+        n = len(g["clips"])
+        g["count"] = f"{n} clip" if n == 1 else f"{n} clips"
+    return no_store(templates.TemplateResponse(request, "videos.html", ctx(
+        request, nav="videos", years=years, year=year, groups=groups, total=len(items))))
+
+
+@app.get("/upload", response_class=HTMLResponse)
+def upload_page(request: Request):
+    if (r := needs_login(request)):
+        return r
+    if auth.role_of(request) != "admin":
+        return RedirectResponse("/photos", status_code=303)
+    return no_store(templates.TemplateResponse(request, "upload.html", ctx(
+        request, nav="upload", chunk_size=CHUNK_SIZE)))
+
+
+@app.get("/media/{media_id}/download")
+def download(request: Request, media_id: uuid.UUID):
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    m = db.get_media(str(media_id))
+    if not m:
+        raise HTTPException(404)
+    name = m["original_name"] or f"{media_id}"
+    return RedirectResponse(storage.url(m["original_key"], download_name=name), status_code=302)
+
+
+# --- turning an original into a gallery item -------------------------------------
+
+def ingest(*, media_id: str, key: str, kind: str, name: str, size: int, mime: str, sha: str,
+           last_modified_ms: float | None = None, taken_override: datetime | None = None,
+           local_path: str | None = None) -> dict:
+    try:
+        if kind == "photo":
+            data = Path(local_path).read_bytes() if local_path else storage.get(key)
+            result = media.process_photo(data)
+        else:
+            result = media.process_video(local_path or storage.url(key))
+    except Exception as exc:  # unreadable file: don't keep a broken item
+        storage.delete(key)
+        raise HTTPException(415, f"Couldn't read {name}: {type(exc).__name__}")
+
+    if result["taken_at"]:
+        taken, source = result["taken_at"], ("exif" if kind == "photo" else "video")
+    elif taken_override:
+        taken, source = taken_override, "shortcut"
+    elif media.from_epoch_ms(last_modified_ms):
+        taken, source = media.from_epoch_ms(last_modified_ms), "file"
+    else:
+        taken, source = datetime.now(settings.tz).replace(tzinfo=None), "upload"
+
+    display_key = thumb_key = None
+    if result["display"]:
+        display_key = f"display/{media_id}.webp"
+        storage.put(display_key, result["display"], "image/webp")
+    if result["thumb"]:
+        thumb_key = f"thumb/{media_id}.webp"
+        storage.put(thumb_key, result["thumb"], "image/webp")
+
+    db.insert_media({
+        "id": media_id, "kind": kind, "taken_at": taken, "date_source": source,
+        "original_key": key, "display_key": display_key, "thumb_key": thumb_key,
+        "width": result["width"], "height": result["height"], "duration": result.get("duration"),
+        "bytes": size, "mime": mime, "original_name": name, "sha256": sha,
+    })
+    return {"id": media_id, "kind": kind, "taken_at": taken.isoformat(), "date_source": source}
+
+
+def _ext(name: str) -> str:
+    return ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+
+
+# --- chunked upload API (admin, from the browser) --------------------------------
+
+UPLOADS: dict[str, dict] = {}
+
+
+@app.post("/api/upload/init")
+async def upload_init(request: Request):
+    auth.require_admin(request)
+    body = await request.json()
+    name, size = str(body.get("name") or "file"), int(body.get("size") or 0)
+    mime = str(body.get("type") or "application/octet-stream")
+    kind = media.kind_for(name, mime)
+    if not kind:
+        return JSONResponse({"error": "Not a photo or video"}, status_code=415)
+    if await run_in_threadpool(db.find_by_name_size, name, size):
+        return {"duplicate": True}
+    media_id = str(uuid.uuid4())
+    key = f"originals/{media_id}{_ext(name)}"
+    s3_id = await run_in_threadpool(storage.mp_start, key, mime)
+    UPLOADS[media_id] = {"key": key, "s3_id": s3_id, "parts": [], "next": 1, "sha": hashlib.sha256(),
+                         "name": name, "size": size, "mime": mime, "kind": kind,
+                         "last_modified": body.get("lastModified"), "started": time.time()}
+    return {"id": media_id, "chunk_size": CHUNK_SIZE}
+
+
+@app.put("/api/upload/{media_id}/part/{number}")
+async def upload_part(request: Request, media_id: str, number: int):
+    auth.require_admin(request)
+    up = UPLOADS.get(media_id)
+    if not up:
+        raise HTTPException(404, "Upload expired — try again")
+    if number < up["next"]:
+        return {"ok": True}  # retry of a part we already have
+    if number != up["next"]:
+        raise HTTPException(409, "Parts must arrive in order")
+    data = await request.body()
+    etag = await run_in_threadpool(storage.mp_part, up["key"], up["s3_id"], number, data)
+    up["sha"].update(data)
+    up["parts"].append({"PartNumber": number, "ETag": etag})
+    up["next"] += 1
+    return {"ok": True}
+
+
+@app.post("/api/upload/{media_id}/complete")
+def upload_complete(request: Request, media_id: str):
+    auth.require_admin(request)
+    up = UPLOADS.pop(media_id, None)
+    if not up:
+        raise HTTPException(404, "Upload expired — try again")
+    storage.mp_finish(up["key"], up["s3_id"], up["parts"])
+    sha = up["sha"].hexdigest()
+    if db.find_by_sha(sha):
+        storage.delete(up["key"])
+        return {"duplicate": True}
+    return ingest(media_id=media_id, key=up["key"], kind=up["kind"], name=up["name"],
+                  size=up["size"], mime=up["mime"], sha=sha,
+                  last_modified_ms=up["last_modified"])
+
+
+@app.post("/api/upload/{media_id}/abort")
+def upload_abort(request: Request, media_id: str):
+    auth.require_admin(request)
+    up = UPLOADS.pop(media_id, None)
+    if up:
+        storage.mp_abort(up["key"], up["s3_id"])
+    return {"ok": True}
+
+
+# --- single-request upload (iOS Shortcut) ----------------------------------------
+
+@app.post("/api/shortcut/upload")
+def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str | None = Form(None)):
+    if not (auth.token_ok(request) or auth.role_of(request) == "admin"):
+        raise HTTPException(401, "Bad upload token")
+    name = file.filename or "upload"
+    mime = file.content_type or "application/octet-stream"
+    kind = media.kind_for(name, mime)
+    if not kind:
+        raise HTTPException(415, "Not a photo or video")
+
+    with tempfile.NamedTemporaryFile(suffix=_ext(name), delete=True) as tmp:
+        sha, size = hashlib.sha256(), 0
+        while chunk := file.file.read(1024 * 1024):
+            sha.update(chunk)
+            size += len(chunk)
+            tmp.write(chunk)
+        tmp.flush()
+        digest = sha.hexdigest()
+        if db.find_by_sha(digest):
+            return {"duplicate": True}
+        media_id = str(uuid.uuid4())
+        key = f"originals/{media_id}{_ext(name)}"
+        with open(tmp.name, "rb") as fh:
+            storage.s3.upload_fileobj(fh, storage.BUCKET, key, ExtraArgs={"ContentType": mime})
+
+        taken_dt = None
+        if taken:
+            try:
+                taken_dt = datetime.fromisoformat(taken.strip().replace("Z", "+00:00"))
+                if taken_dt.tzinfo:
+                    taken_dt = taken_dt.astimezone(settings.tz).replace(tzinfo=None)
+            except ValueError:
+                taken_dt = None
+        return ingest(media_id=media_id, key=key, kind=kind, name=name, size=size, mime=mime,
+                      sha=digest, taken_override=taken_dt, local_path=tmp.name)
+
+
+# --- admin: delete ---------------------------------------------------------------
+
+@app.delete("/api/media/{media_id}")
+def delete_item(request: Request, media_id: uuid.UUID):
+    auth.require_admin(request)
+    m = db.get_media(str(media_id))
+    if not m:
+        raise HTTPException(404)
+    storage.delete(m["original_key"], m["display_key"], m["thumb_key"])
+    db.delete_media(str(media_id))
+    return {"ok": True}

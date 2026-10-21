@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="login">
+  <div class="login-art" aria-hidden="true"><div></div><div></div><div></div><div></div><div></div></div>
+  <main class="login-form">
+    <form method="post" action="/login">
+      <h1>{{ site_name }}<em> capsule</em></h1>
+      <p class="lede">A private album for family and close friends.</p>
+      {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+      <label class="field-label" for="pw">Password</label>
+      <input class="input" id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+      <input type="hidden" name="next" value="{{ next }}">
+      <label class="check"><input type="checkbox" name="remember" value="1" checked> Remember this device</label>
+      <button class="btn primary big" type="submit">Open album</button>
+    </form>
+  </main>
+</div>
+{% endblock %}
