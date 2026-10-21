@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit cover' if cover_id else 'New cover' }} · {{ site_name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=DM+Serif+Display:ital@0;1&family=Gloock&family=Libre+Bodoni:ital,wght@0,400..700;1,400..700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap">
+{% endblock %}
+{% block main %}
+<main class="cover-wrap">
+  <div class="cover-top">
+    <h1>{{ 'Edit cover' if cover_id else 'New cover' }}</h1>
+    <a class="btn" href="/covers">Back to Covers</a>
+  </div>
+
+  {% if not picker %}
+  <p class="cover-none">There are no photos in the album yet, so there's nothing to put on a cover.
+    <a href="/upload">Upload some photos</a> first.</p>
+  {% else %}
+  <div class="cover-cols">
+    <div class="cover-stage">
+      <div class="cover-canvas-box">
+        <canvas id="cv" width="{{ cover_w }}" height="{{ cover_h }}" role="img"
+                aria-label="Cover preview"></canvas>
+        <div class="cover-empty" id="cover-empty">
+          <strong>Pick a photo to begin</strong>
+          <button class="btn" type="button" id="pick-empty">Choose a photo</button>
+        </div>
+      </div>
+      <p class="cover-hint">Drag the photo to reposition it · the preview is exactly what gets saved</p>
+    </div>
+
+    <div class="cover-panel">
+      <section class="ctl">
+        <div class="ctl-head">Photo</div>
+        <div class="ctl-row">
+          <button class="btn" type="button" id="pick">Choose a photo</button>
+          <span class="ctl-sub" id="photo-when"></span>
+        </div>
+        <label class="ctl-range" for="zoom">Zoom
+          <input type="range" id="zoom" min="1" max="3" step="0.01" value="1">
+        </label>
+      </section>
+
+      <section class="ctl">
+        <div class="ctl-head">Layout</div>
+        <div class="seg" id="layouts" role="radiogroup" aria-label="Layout">
+          <button class="seg-b" type="button" role="radio" data-layout="classic" aria-checked="true">Classic</button>
+          <button class="seg-b" type="button" role="radio" data-layout="side" aria-checked="false">Side lines</button>
+          <button class="seg-b" type="button" role="radio" data-layout="minimal" aria-checked="false">Minimal</button>
+        </div>
+        <p class="ctl-note" id="layout-note"></p>
+      </section>
+
+      <section class="ctl">
+        <div class="ctl-head">Masthead</div>
+        <input class="input" id="masthead" type="text" maxlength="28" value="{{ site_name }}"
+               aria-label="Masthead text" autocomplete="off">
+        <div class="fontrow" id="fontrow" role="radiogroup" aria-label="Masthead typeface"></div>
+        <div class="seg narrow" id="weights" role="radiogroup" aria-label="Masthead weight">
+          <button class="seg-b" type="button" role="radio" data-weight="400" aria-checked="false">Regular</button>
+          <button class="seg-b" type="button" role="radio" data-weight="700" aria-checked="false">Bold</button>
+          <button class="seg-b" type="button" role="radio" data-weight="900" aria-checked="true">Black</button>
+        </div>
+      </section>
+
+      <section class="ctl">
+        <div class="ctl-head">Text</div>
+        <label class="ctl-field"><span>Headline</span>
+          <input class="input" id="headline" type="text" maxlength="60" autocomplete="off"></label>
+        <label class="ctl-field"><span>Cover line 1</span>
+          <input class="input" id="line1" type="text" maxlength="48" autocomplete="off"></label>
+        <label class="ctl-field"><span>Cover line 2</span>
+          <input class="input" id="line2" type="text" maxlength="48" autocomplete="off"></label>
+        <label class="ctl-field"><span>Issue line</span>
+          <input class="input" id="issue" type="text" maxlength="48" autocomplete="off"></label>
+        <label class="ctl-field"><span>Headline &amp; cover line typeface</span>
+          <select class="input" id="textfont"></select></label>
+      </section>
+
+      <section class="ctl">
+        <div class="ctl-head">Text colour</div>
+        <div class="swatches" id="colours" role="radiogroup" aria-label="Text colour">
+          <button class="sw" type="button" role="radio" data-colour="#FFFFFF" aria-checked="true"
+                  style="--sw: #FFFFFF" aria-label="White"></button>
+          <button class="sw" type="button" role="radio" data-colour="#1A1A18" aria-checked="false"
+                  style="--sw: #1A1A18" aria-label="Black"></button>
+          <button class="sw" type="button" role="radio" data-colour="#B3261E" aria-checked="false"
+                  style="--sw: #B3261E" aria-label="Red"></button>
+          <button class="sw" type="button" role="radio" data-colour="#F2D27A" aria-checked="false"
+                  style="--sw: #F2D27A" aria-label="Gold"></button>
+        </div>
+        <label class="check"><input type="checkbox" id="scrim" checked>
+          Shade behind the text</label>
+      </section>
+
+      <div class="cover-actions">
+        <button class="btn primary big" type="button" id="save">
+          {{ 'Save changes' if cover_id else 'Save to Covers' }}</button>
+        <button class="btn big" type="button" id="download">Download image</button>
+      </div>
+      <p class="ctl-note" id="save-note" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div class="picker" id="picker" role="dialog" aria-modal="true" aria-label="Choose a photo" hidden>
+    <div class="picker-box">
+      <div class="picker-head">
+        <h2>Choose a photo</h2>
+        <button class="icon-btn dark" type="button" id="picker-close" aria-label="Close">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      {% if years | length > 1 %}
+      <nav class="chips" id="picker-years" aria-label="Filter by year">
+        <a class="chip" href="#" data-year="" aria-current="true">All</a>
+        {% for y in years %}<a class="chip" href="#" data-year="{{ y }}">{{ y }}</a>{% endfor %}
+      </nav>
+      {% endif %}
+      <div class="picker-grid">
+        {% for p in picker %}
+        <button class="picker-tile" type="button" data-id="{{ p.id }}" data-year="{{ p.year }}"
+                data-when="{{ p.when }}" aria-label="{{ p.date }}">
+          <img src="{{ p.thumb }}" alt="" loading="lazy" decoding="async">
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
+{% block scripts %}
+<script id="cover-boot" type="application/json">{{ {
+  'photo': start_photo, 'coverId': cover_id, 'nextNo': next_no,
+  'siteName': site_name, 'settings': saved_settings } | tojson }}</script>
+<script src="/static/cover.js?v=1"></script>
+{% endblock %}

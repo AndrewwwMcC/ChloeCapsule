@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import tempfile
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, PlainTextResponse,
-                               RedirectResponse)
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -230,6 +231,86 @@ def videos(request: Request, year: int | None = None):
         request, nav="videos", years=years, year=year, groups=groups, total=len(items))))
 
 
+# --- covers ----------------------------------------------------------------------
+
+COVER_W, COVER_H = 1600, 2080  # 4:5.2, the shape of a newsstand cover
+
+
+def _as_uuid(value: str | None) -> str | None:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def cover_card(c: dict) -> dict:
+    try:
+        saved = json.loads(c["settings"])
+    except (TypeError, ValueError):
+        saved = {}
+    made = c["created_at"]
+    return {
+        "id": str(c["id"]),
+        "thumb": storage.url(c["thumb_key"]) or storage.url(c["image_key"]),
+        "full": storage.url(c["image_key"]),
+        "masthead": saved.get("masthead") or settings.site_name,
+        "issue": saved.get("issue") or "",
+        "date": f"{made.strftime('%b')} {made.day}, {made.year}" if hasattr(made, "day") else "",
+    }
+
+
+@app.get("/covers", response_class=HTMLResponse)
+def covers_page(request: Request):
+    if (r := needs_login(request)):
+        return r
+    return no_store(templates.TemplateResponse(request, "covers.html", ctx(
+        request, nav="covers", covers=[cover_card(c) for c in db.all_covers()])))
+
+
+@app.get("/covers/new", response_class=HTMLResponse)
+def cover_editor(request: Request, photo: str | None = None, cover: str | None = None):
+    if (r := needs_login(request)):
+        return r
+    if auth.role_of(request) != "admin":
+        return RedirectResponse("/covers", status_code=303)
+
+    picker = [{
+        "id": str(m["id"]), "thumb": storage.url(m["thumb_key"]), "year": m["taken_at"].year,
+        "when": f"{MONTHS[m['taken_at'].month - 1]} {m['taken_at'].year}",
+        "date": f"{m['taken_at'].strftime('%b')} {m['taken_at'].day}, {m['taken_at'].year}",
+    } for m in db.all_media("photo") if m["thumb_key"]]
+    years = sorted({p["year"] for p in picker}, reverse=True)
+
+    saved, cover_id = None, None
+    if cover:
+        row = db.get_cover(_as_uuid(cover) or "") if _as_uuid(cover) else None
+        if not row:
+            raise HTTPException(404)
+        cover_id = str(row["id"])
+        saved = row["settings"]
+        photo = str(row["media_id"]) if row["media_id"] else None
+
+    start = _as_uuid(photo)
+    if start and not db.get_media(start):
+        start = None  # the source photo is gone; the editor asks for another
+
+    return no_store(templates.TemplateResponse(request, "cover_new.html", ctx(
+        request, nav="covers", picker=picker, years=years, start_photo=start,
+        saved_settings=saved, cover_id=cover_id, next_no=db.cover_count() + 1,
+        cover_w=COVER_W, cover_h=COVER_H)))
+
+
+@app.get("/covers/{cover_id}/download")
+def cover_download(request: Request, cover_id: uuid.UUID):
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    c = db.get_cover(str(cover_id))
+    if not c:
+        raise HTTPException(404)
+    return RedirectResponse(storage.url(c["image_key"], download_name=f"cover-{str(cover_id)[:8]}.jpg"),
+                            status_code=302)
+
+
 @app.get("/upload", response_class=HTMLResponse)
 def upload_page(request: Request):
     if (r := needs_login(request)):
@@ -254,6 +335,25 @@ def local_file(request: Request, key: str, download: str | None = None):
     if not path.is_file():
         raise HTTPException(404)
     return FileResponse(path, filename=download) if download else FileResponse(path)
+
+
+@app.get("/media/{media_id}/image")
+def media_image(request: Request, media_id: uuid.UUID):
+    """The photo's display copy served by the app itself. The cover editor draws it on a
+    canvas, which it may only read back from if the bytes came from our own origin —
+    a redirect to a signed bucket link would taint the canvas."""
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    m = db.get_media(str(media_id))
+    if not m:
+        raise HTTPException(404)
+    key = m["display_key"] or m["original_key"]
+    try:
+        data = storage.get(key)
+    except Exception:
+        raise HTTPException(404)
+    mime = "image/webp" if m["display_key"] else (m["mime"] or "application/octet-stream")
+    return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/media/{media_id}/download")
@@ -485,6 +585,64 @@ def remake_poster(request: Request, media_id: uuid.UUID):
     return {"ok": True}
 
 
+MAX_COVER_BYTES = 12 * 1024 * 1024
+
+
+@app.post("/api/covers")
+async def save_cover(request: Request, image: UploadFile = File(...),
+                     settings_json: str = Form(..., alias="settings"),
+                     media_id: str | None = Form(None), cover_id: str | None = Form(None)):
+    """Store the JPEG the editor rendered, plus the settings needed to edit it again."""
+    auth.require_admin(request)
+    data = await image.read()
+    if not data:
+        raise HTTPException(400, "The cover came through empty")
+    if len(data) > MAX_COVER_BYTES:
+        raise HTTPException(413, "That cover came out too large")
+    try:
+        saved = json.loads(settings_json)
+        if not isinstance(saved, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        raise HTTPException(400, "Couldn't read the cover settings")
+    try:
+        info = await run_in_threadpool(media.process_cover, data)
+    except Exception as exc:
+        raise HTTPException(415, f"Couldn't read the cover image: {type(exc).__name__}")
+
+    source = _as_uuid(media_id)
+    if source and not await run_in_threadpool(db.get_media, source):
+        source = None
+    existing = db.get_cover(_as_uuid(cover_id)) if _as_uuid(cover_id) else None
+    cid = str(existing["id"]) if existing else str(uuid.uuid4())
+
+    image_key, thumb_key = f"covers/{cid}.jpg", f"covers/thumb/{cid}.webp"
+    await run_in_threadpool(storage.put, image_key, data, "image/jpeg")
+    if info["thumb"]:
+        await run_in_threadpool(storage.put, thumb_key, info["thumb"], "image/webp")
+
+    now = datetime.now(settings.tz).replace(tzinfo=None)
+    row = {"media_id": source, "settings": json.dumps(saved, ensure_ascii=False),
+           "image_key": image_key, "thumb_key": thumb_key if info["thumb"] else None,
+           "width": info["width"], "height": info["height"], "updated_at": now}
+    if existing:
+        await run_in_threadpool(db.update_cover, cid, row)
+    else:
+        await run_in_threadpool(db.insert_cover, {"id": cid, "created_at": now, **row})
+    return {"id": cid}
+
+
+@app.delete("/api/covers/{cover_id}")
+def delete_cover_item(request: Request, cover_id: uuid.UUID):
+    auth.require_admin(request)
+    c = db.get_cover(str(cover_id))
+    if not c:
+        raise HTTPException(404)
+    storage.delete(c["image_key"], c["thumb_key"])
+    db.delete_cover(str(cover_id))
+    return {"ok": True}
+
+
 @app.delete("/api/media/{media_id}")
 def delete_item(request: Request, media_id: uuid.UUID):
     auth.require_admin(request)
@@ -492,5 +650,6 @@ def delete_item(request: Request, media_id: uuid.UUID):
     if not m:
         raise HTTPException(404)
     storage.delete(m["original_key"], m["display_key"], m["thumb_key"])
+    db.clear_cover_source(str(media_id))  # covers made from it stay in /covers
     db.delete_media(str(media_id))
     return {"ok": True}

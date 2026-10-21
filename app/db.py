@@ -1,4 +1,5 @@
-"""Database access: one table of media items. Plain SQL, no ORM.
+"""Database access: photos and videos in `media`, saved magazine covers in `covers`.
+Plain SQL, no ORM.
 
 Postgres on Railway; a SQLite file (local-data/capsule.db) when running locally."""
 import sqlite3
@@ -27,6 +28,19 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS media_kind_taken ON media (kind, taken_at DESC);
 CREATE INDEX IF NOT EXISTS media_name_size ON media (original_name, bytes);
+
+CREATE TABLE IF NOT EXISTS covers (
+    id         uuid PRIMARY KEY,
+    media_id   uuid,                 -- source photo; NULL once that photo is deleted
+    settings   text NOT NULL,        -- JSON the editor needs to rebuild this cover
+    image_key  text NOT NULL,
+    thumb_key  text,
+    width      integer,
+    height     integer,
+    created_at timestamp NOT NULL,
+    updated_at timestamp NOT NULL
+);
+CREATE INDEX IF NOT EXISTS covers_created ON covers (created_at DESC);
 """
 
 SQLITE_SCHEMA = """
@@ -49,6 +63,19 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS media_kind_taken ON media (kind, taken_at DESC);
 CREATE INDEX IF NOT EXISTS media_name_size ON media (original_name, bytes);
+
+CREATE TABLE IF NOT EXISTS covers (
+    id         text PRIMARY KEY,
+    media_id   text,
+    settings   text NOT NULL,
+    image_key  text NOT NULL,
+    thumb_key  text,
+    width      integer,
+    height     integer,
+    created_at timestamp NOT NULL,
+    updated_at timestamp NOT NULL
+);
+CREATE INDEX IF NOT EXISTS covers_created ON covers (created_at DESC);
 """
 
 SQLITE = settings.use_sqlite
@@ -180,3 +207,47 @@ def all_media(kind: str) -> list[dict]:
     with _conn() as conn:
         return _rows(conn.execute(
             _sql("SELECT * FROM media WHERE kind = %s ORDER BY taken_at DESC"), (kind,)))
+
+
+# --- covers ----------------------------------------------------------------------
+
+def insert_cover(row: dict) -> None:
+    cols = ", ".join(row.keys())
+    vals = ", ".join(f"%({k})s" for k in row.keys())
+    with _conn() as conn:
+        conn.execute(_sql(f"INSERT INTO covers ({cols}) VALUES ({vals})"), row)
+
+
+def update_cover(cover_id: str, fields: dict) -> None:
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = %({k})s" for k in fields)
+    with _conn() as conn:
+        conn.execute(_sql(f"UPDATE covers SET {sets} WHERE id = %(_id)s"),
+                     {**fields, "_id": cover_id})
+
+
+def get_cover(cover_id: str) -> dict | None:
+    with _conn() as conn:
+        return _one(conn.execute(_sql("SELECT * FROM covers WHERE id = %s"), (cover_id,)))
+
+
+def all_covers() -> list[dict]:
+    with _conn() as conn:
+        return _rows(conn.execute(_sql("SELECT * FROM covers ORDER BY created_at DESC")))
+
+
+def cover_count() -> int:
+    with _conn() as conn:
+        return _one(conn.execute(_sql("SELECT count(*) AS n FROM covers")))["n"]
+
+
+def delete_cover(cover_id: str) -> None:
+    with _conn() as conn:
+        conn.execute(_sql("DELETE FROM covers WHERE id = %s"), (cover_id,))
+
+
+def clear_cover_source(media_id: str) -> None:
+    """A deleted photo doesn't take its covers with it — they just lose their source."""
+    with _conn() as conn:
+        conn.execute(_sql("UPDATE covers SET media_id = NULL WHERE media_id = %s"), (media_id,))

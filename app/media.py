@@ -91,6 +91,16 @@ def process_photo(data: bytes) -> dict:
     }
 
 
+def process_cover(data: bytes) -> dict:
+    """A saved cover: the JPEG the browser rendered is kept as sent; we only
+    measure it and derive a thumbnail for the Covers grid."""
+    img = Image.open(io.BytesIO(data))
+    img.load()
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return {"width": img.width, "height": img.height, "thumb": _webp(img, THUMB_EDGE, 80)}
+
+
 def _video_date(fmt_tags: dict) -> datetime | None:
     tags = {k.lower(): v for k, v in (fmt_tags or {}).items()}
     # iPhones store the local time with offset here — the best source

@@ -6,6 +6,7 @@
   const when = document.getElementById('v-when');
   const dl = document.getElementById('v-download');
   const del = document.getElementById('v-delete');
+  const cover = document.getElementById('v-cover');
   const stage = document.getElementById('v-stage');
   let tiles = Array.from(document.querySelectorAll('.tile'));
   let current = -1;
@@ -29,6 +30,7 @@
       when.append(s);
     }
     dl.href = '/media/' + t.dataset.id + '/download';
+    if (cover) cover.href = '/covers/new?photo=' + t.dataset.id;
     preload(current + 1);
     preload(current - 1);
   }

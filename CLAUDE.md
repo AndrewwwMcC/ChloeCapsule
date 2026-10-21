@@ -21,6 +21,9 @@ Ando and his wife (admins) and their family (viewers). Deployed on Railway from 
 - Dates come from EXIF (photos) or QuickTime metadata (videos); `taken_at` is local wall-clock time.
 - Uploads: browser sends 16 MB chunks in order (`/api/upload/init → part/N → complete`); the iOS
   Shortcut posts whole files to `/api/shortcut/upload` with `Authorization: Bearer <UPLOAD_TOKEN>`.
+- Covers: `app/static/cover.js` draws a 1600×2080 cover on a canvas from one album photo and posts
+  the JPEG to `/api/covers`; the `covers` table keeps the settings so a cover can be edited again.
+  The photo is loaded through `/media/<id>/image` (same-origin, or the canvas can't be exported).
 
 ## Design
 Quiet, photo-first, editorial. Tokens live at the top of `app/static/style.css`:
@@ -36,6 +39,7 @@ Must work well on a phone (most viewing and uploading happens there).
 
 ## Roadmap
 1. Timelapse builder: pick a date range, face-aligned frames (MediaPipe landmarks → align eyes), ffmpeg render.
-2. Cover maker: editable masthead (Bodoni Moda, original design — no real magazine logos), 3 layouts, export.
-3. Automatic backup from phones via the Shortcut on a schedule.
-4. Optional: transcode HEVC videos to H.264 for non-Apple browsers.
+2. Automatic backup from phones via the Shortcut on a schedule.
+3. Optional: transcode HEVC videos to H.264 for non-Apple browsers.
+
+Done: cover maker (3 layouts, 6 mastheads — all original designs, never a real magazine's logo).

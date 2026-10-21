@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Covers · {{ site_name }}{% endblock %}
+{% block main %}
+<main class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Covers</h1>
+      {% if covers %}
+      <p>{{ covers | length }} cover{{ '' if covers | length == 1 else 's' }} made from the album</p>
+      {% elif role == 'admin' %}
+      <p>Nothing here yet. Turn any photo into a cover of her own.</p>
+      {% else %}
+      <p>Nothing here yet. Covers will appear once they're made.</p>
+      {% endif %}
+    </div>
+    {% if role == 'admin' and covers %}
+    <a class="btn primary" href="/covers/new">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      New cover
+    </a>
+    {% endif %}
+  </div>
+
+  {% if not covers %}
+    {% if role == 'admin' %}<a class="btn primary big" href="/covers/new">Make the first cover</a>{% endif %}
+  {% else %}
+  <div class="cover-grid">
+    {% for c in covers %}
+    <a class="cover-card" id="c-{{ c.id }}" href="{{ c.full }}" data-id="{{ c.id }}"
+       data-full="{{ c.full }}" data-date="{{ c.date }}" data-issue="{{ c.issue }}"
+       aria-label="Cover {{ c.masthead }}{% if c.issue %}, {{ c.issue }}{% endif %}">
+      <img src="{{ c.thumb }}" alt="" loading="lazy" decoding="async">
+      <span class="cover-meta"><span>{{ c.masthead }}</span><span>{{ c.issue }}</span></span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</main>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Cover viewer">
+  <div class="viewer-bar">
+    <div class="when" id="v-when"></div>
+    <div class="viewer-actions">
+      <a class="icon-btn" id="v-download" href="#" aria-label="Download cover">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      </a>
+      {% if role == 'admin' %}
+      <a class="icon-btn" id="v-edit" href="#" aria-label="Edit this cover" title="Edit">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>
+      </a>
+      <button class="icon-btn" id="v-delete" type="button" aria-label="Delete cover">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+      </button>
+      {% endif %}
+      <button class="icon-btn" id="v-close" type="button" aria-label="Close">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="viewer-stage" id="v-stage">
+    <img id="v-img" alt="">
+    <button class="icon-btn viewer-nav prev" id="v-prev" type="button" aria-label="Previous cover">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <button class="icon-btn viewer-nav next" id="v-next" type="button" aria-label="Next cover">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/covers.js?v=1"></script>{% endblock %}
