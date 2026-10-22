@@ -600,6 +600,16 @@ def api_stats(request: Request):
     return no_store(JSONResponse(stats.with_urls(stats.payload())))
 
 
+@app.get("/api/heatmap")
+def api_heatmap(request: Request, year: int):
+    """The day-by-day grid for one calendar year, for the Home page's year picker."""
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    if not 1900 <= year <= 2200:
+        raise HTTPException(400, "Year out of range")
+    return no_store(JSONResponse(stats.heatmap(year)))
+
+
 @app.get("/api/random")
 def api_random(request: Request, scope: str = "any", value: str | None = None):
     """Surprise me: one photo out of the chosen slice of the album."""

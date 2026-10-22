@@ -38,3 +38,56 @@
     }
   });
 })();
+
+// The year picker above the heatmap: swap in another year's grid, no reload.
+(function () {
+  const year = document.getElementById('heat-year');
+  const grid = document.getElementById('heat-grid');
+  if (!year || !grid) return;
+  const inner = document.getElementById('heat-inner');
+  const scroll = document.getElementById('heat-scroll');
+  const months = document.getElementById('heat-months');
+  const title = document.getElementById('heat-title');
+  const caption = document.getElementById('heat-caption');
+  const chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+  const seen = {};
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => chars[c]);
+
+  function square(day) {
+    if (!day) return '<i class="sq empty"></i>';
+    if (day.future) return '<i class="sq future"></i>';
+    const t = esc(day.title);
+    if (day.href) {
+      return `<a class="sq lvl-${day.level}" href="${esc(day.href)}" title="${t}" aria-label="${t}"></a>`;
+    }
+    return `<i class="sq lvl-0" title="${t}"></i>`;
+  }
+
+  function draw(heat) {
+    inner.style.setProperty('--cols', heat.columns);
+    grid.innerHTML = heat.weeks.map((week) => week.map(square).join('')).join('');
+    months.innerHTML = heat.months
+      .map((m) => `<span style="grid-column: ${m.col + 1}">${esc(m.label)}</span>`).join('');
+    title.textContent = heat.year + ', day by day';
+    caption.textContent = heat.caption;
+    scroll.scrollLeft = 0;
+  }
+
+  year.addEventListener('change', async () => {
+    const want = year.value;
+    year.disabled = true;
+    try {
+      if (!seen[want]) {
+        const res = await fetch('/api/heatmap?year=' + encodeURIComponent(want));
+        if (!res.ok) { caption.textContent = 'Couldn’t load that year.'; return; }
+        seen[want] = await res.json();
+      }
+      draw(seen[want]);
+    } catch (err) {
+      caption.textContent = 'Couldn’t load that year.';
+    } finally {
+      year.disabled = false;
+    }
+  });
+})();

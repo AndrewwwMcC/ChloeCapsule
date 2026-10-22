@@ -23,10 +23,11 @@ Ando and his wife (admins) and their family (viewers). Deployed on Railway from 
 - Uploads: browser sends 16 MB chunks in order (`/api/upload/init → part/N → complete`); the iOS
   Shortcut posts whole files to `/api/shortcut/upload` with `Authorization: Bearer <UPLOAD_TOKEN>`.
 - Home (`/`, "the almanac") is where everyone lands: totals, on this day, surprise me, just added,
-  a year of days as a heatmap, photos per month, and small charts for hour/weekday/place. It is
-  server-rendered from `stats.payload()`, which is computed once and kept in memory until an upload
-  or delete calls `stats.invalidate()`. `GET /api/stats` returns the same thing as JSON;
-  `GET /api/random` backs Surprise me. Signed links expire, so the cache holds storage keys only.
+  one calendar year of days as a heatmap, photos per month, and small charts for hour/weekday/place.
+  It is server-rendered from `stats.payload()`, which is computed once and kept in memory until an
+  upload or delete calls `stats.invalidate()`. `GET /api/stats` returns the same thing as JSON;
+  `GET /api/random` backs Surprise me; `GET /api/heatmap?year=` redraws the heatmap when the year
+  picker changes (one cached grid per year). Signed links expire, so the cache holds storage keys only.
 - Places come from EXIF GPS at upload time via the `reverse_geocode` package (offline, no API).
   Photos from before that: `python -m app.backfill_places` (add `--dry-run` to look first).
 - Covers: `app/static/cover.js` draws a 1600×2080 cover on a canvas from one album photo and posts

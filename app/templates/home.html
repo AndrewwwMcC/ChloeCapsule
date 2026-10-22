@@ -97,19 +97,30 @@
   <!-- a year of days -->
   <section class="block">
     <div class="block-top">
-      <h2 class="block-h">The last twelve months, day by day</h2>
+      <div class="block-head">
+        <div class="head-row">
+          <h2 class="block-h" id="heat-title">{{ s.heatmap.year }}, day by day</h2>
+          {% if s.heat_years %}
+          <label class="vis-hidden" for="heat-year">Which year</label>
+          <select class="select" id="heat-year">
+            {% for y in s.heat_years %}<option value="{{ y }}"{% if y == s.heatmap.year %} selected{% endif %}>{{ y }}</option>{% endfor %}
+          </select>
+          {% endif %}
+        </div>
+        <p class="block-note" id="heat-caption">{{ s.heatmap.caption }}</p>
+      </div>
       <div class="legend">
         <span>Less</span>
         {% for level in [0, 1, 2, 3, 4] %}<i class="sq lvl-{{ level }}"></i>{% endfor %}
         <span>More</span>
       </div>
     </div>
-    <div class="heat-scroll">
-      <div class="heat-inner" style="--cols: {{ s.heatmap.columns }}">
-        <div class="heat">
-          {% for week in s.heatmap.weeks %}{% for day in week %}{% if not day %}<i class="sq empty"></i>{% elif day.href %}<a class="sq lvl-{{ day.level }}" href="{{ day.href }}" title="{{ day.title }}" aria-label="{{ day.title }}"></a>{% else %}<i class="sq lvl-0" title="{{ day.title }}"></i>{% endif %}{% endfor %}{% endfor %}
+    <div class="heat-scroll" id="heat-scroll">
+      <div class="heat-inner" id="heat-inner" style="--cols: {{ s.heatmap.columns }}">
+        <div class="heat" id="heat-grid">
+          {% for week in s.heatmap.weeks %}{% for day in week %}{% if not day %}<i class="sq empty"></i>{% elif day.future %}<i class="sq future"></i>{% elif day.href %}<a class="sq lvl-{{ day.level }}" href="{{ day.href }}" title="{{ day.title }}" aria-label="{{ day.title }}"></a>{% else %}<i class="sq lvl-0" title="{{ day.title }}"></i>{% endif %}{% endfor %}{% endfor %}
         </div>
-        <div class="heat-months">
+        <div class="heat-months" id="heat-months">
           {% for m in s.heatmap.months %}<span style="grid-column: {{ m.col + 1 }}">{{ m.label }}</span>{% endfor %}
         </div>
       </div>
@@ -193,5 +204,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/gallery.js?v=3"></script>
-<script src="/static/home.js?v=1"></script>
+<script src="/static/home.js?v=2"></script>
 {% endblock %}

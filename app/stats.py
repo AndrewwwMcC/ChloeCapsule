@@ -13,7 +13,6 @@ from datetime import date, datetime, timedelta
 from . import db, storage
 from .config import settings
 
-HEAT_DAYS = 365
 HEAT_THRESHOLDS = (1, 4, 10, 20)  # levels: 0 · 1-3 · 4-9 · 10-19 · 20+
 ON_THIS_DAY_PICKS = 3
 ON_THIS_DAY_SLACK = 3  # days either side, when that exact day is empty
@@ -25,6 +24,7 @@ WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 _lock = threading.RLock()
 _cache: dict | None = None
 _rows: list[dict] | None = None
+_heat: dict[int, dict] = {}
 
 
 def invalidate() -> None:
@@ -33,6 +33,7 @@ def invalidate() -> None:
     with _lock:
         _cache = None
         _rows = None
+        _heat.clear()
 
 
 # --- small shared formatting -----------------------------------------------------
@@ -211,32 +212,50 @@ def _latest_batch(rows_: list[dict]) -> dict:
             "link": _tile(first)["href"], "more": max(len(batch) - BATCH_TILES, 0)}
 
 
-def _heatmap(by_day: Counter, today: date) -> dict:
-    start = today - timedelta(days=HEAT_DAYS - 1)
-    monday = start - timedelta(days=start.weekday())
-    weeks, labels, last_month = [], [], None
+def _heatmap(by_day: Counter, year: int, today: date) -> dict:
+    """One calendar year as 7 rows of days, Monday at the top.
+
+    Days outside the year pad the first and last column (blank); days still to
+    come in the current year are drawn as outlines rather than as empty days."""
+    jan1, dec31 = date(year, 1, 1), date(year, 12, 31)
+    monday = jan1 - timedelta(days=jan1.weekday())
+    weeks = []
     day = monday
-    while day <= today:
+    while day <= dec31:
         column = []
         for i in range(7):
             d = day + timedelta(days=i)
-            if d < start or d > today:
+            if d < jan1 or d > dec31:
                 column.append(None)
-                continue
-            n = by_day.get(d, 0)
-            level = sum(1 for t in HEAT_THRESHOLDS if n >= t)
-            column.append({"n": n, "level": level, "href": month_anchor(d) if n else None,
-                           "title": f"{_plural(n, 'photo') if n else 'No photos'} · {_day_label(d)}"})
-        first_real = next((d for d in (day + timedelta(days=i) for i in range(7))
-                           if start <= d <= today), None)
-        if first_real and first_real.month != last_month and \
-                (not labels or len(weeks) - labels[-1]["col"] >= 3):
-            labels.append({"col": len(weeks), "label": first_real.strftime("%b")})
-            last_month = first_real.month
+            elif d > today:
+                column.append({"future": True})
+            else:
+                n = by_day.get(d, 0)
+                level = sum(1 for t in HEAT_THRESHOLDS if n >= t)
+                column.append({"n": n, "level": level,
+                               "href": month_anchor(d) if n else None,
+                               "title": f"{_plural(n, 'photo') if n else 'No photos'}"
+                                        f" · {_day_label(d)}"})
         weeks.append(column)
         day += timedelta(days=7)
-    total = sum(n for d, n in by_day.items() if start <= d <= today)
-    return {"weeks": weeks, "months": labels, "columns": len(weeks), "total": total}
+
+    months = [{"col": (date(year, m, 1) - monday).days // 7,
+               "label": date(year, m, 1).strftime("%b")} for m in range(1, 13)]
+    counted = {d: n for d, n in by_day.items() if jan1 <= d <= dec31 and n}
+    total, days = sum(counted.values()), len(counted)
+    caption = (f"{_plural(total, 'photo')} · {_plural(days, 'day')} captured"
+               if total else f"Nothing from {year} yet")
+    return {"year": year, "weeks": weeks, "months": months, "columns": len(weeks),
+            "total": total, "days": days, "caption": caption}
+
+
+def heatmap(year: int) -> dict:
+    """The grid for one year, kept in memory until the album changes."""
+    with _lock:
+        if year not in _heat:
+            by_day = Counter(r["taken_at"].date() for r in rows() if r["kind"] == "photo")
+            _heat[year] = _heatmap(by_day, year, datetime.now(settings.tz).date())
+        return _heat[year]
 
 
 def _monthly(photos: list[dict], today: date) -> dict:
@@ -326,6 +345,8 @@ def _build(rows_: list[dict]) -> dict:
     videos = [r for r in rows_ if r["kind"] == "video"]
     by_day = Counter(p["taken_at"].date() for p in photos)
     days = sorted(by_day)
+    years = sorted({p["taken_at"].year for p in photos}, reverse=True)
+    heat_year = today.year if today.year in years or not years else years[0]
     video_seconds = sum(v["duration"] or 0 for v in videos)
 
     return {
@@ -339,7 +360,8 @@ def _build(rows_: list[dict]) -> dict:
         },
         "on_this_day": _on_this_day(photos, today),
         "latest": _latest_batch(rows_),
-        "heatmap": _heatmap(by_day, today),
+        "heat_years": years,
+        "heatmap": heatmap(heat_year),
         "monthly": _monthly(photos, today),
         "hours": _hours(photos),
         "weekdays": _weekdays(photos),
