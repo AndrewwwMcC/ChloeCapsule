@@ -2,6 +2,7 @@
 
 A private, password-protected photo and video album for one family.
 
+- **Home** is an almanac: how many moments there are, this day in earlier years, a random photo on demand, the newest batch, a year of days as a heatmap, and where the photos were taken.
 - **Photos** are sorted by year and month using the date each one was *taken* (EXIF), not when it was uploaded. iPhone HEIC works.
 - **Videos** live in their own section.
 - **Two passwords:** the family password lets people view and download; the admin password (you and your wife) also lets you upload and delete.
@@ -26,7 +27,7 @@ In Railway: **New Project → Deploy from GitHub repo** → pick the repo. Then 
 - **+ Create → Bucket** (Storage Bucket)
 
 ### 4. Variables
-Open the app service → **Variables** → *Raw Editor* and paste this, replacing the `<...>` parts. For the bucket lines, swap `Bucket` for your bucket service's name as shown in Railway (the editor autocompletes `${{`).
+Open the app service → **Variables** → *Raw Editor* and paste this, replacing the `<...>` parts (the same list is in `.env.example`). For the bucket lines, swap `Bucket` for your bucket service's name as shown in Railway (the editor autocompletes `${{`).
 
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
@@ -46,7 +47,7 @@ SESSION_SECRET=<random string, 40+ characters>
 UPLOAD_TOKEN=<another random string, for the iPhone Shortcut>
 ```
 
-- `BIRTH_DATE` turns on the age labels ("age 2", "1 yr 4 mo"). Leave it out if you'd rather not.
+- `BIRTH_DATE` turns on the age labels ("Age 2 years, 6 months" on Home, "age 2" on photos). Leave it out and the age text simply disappears.
 - Random strings: run `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` twice, or use a password manager.
 - If the bucket's **Credentials** tab says it uses *path-style* URLs, also add `S3_ADDRESSING_STYLE=path`.
 - Changing `SESSION_SECRET` logs everyone out — handy if a password leaks (change the password too).
@@ -68,6 +69,7 @@ For one-tap sharing from the Photos app, set up the Shortcut in `SHORTCUT.md`.
 - **Keep one instance.** Uploads in progress are tracked in memory, so don't add replicas (`railway.json` already sets 1).
 - **iPhone videos** are usually HEVC. They play on iPhone, iPad and Mac; some browsers on Windows/Android can't play HEVC, and the player then says so — downloading still works. Converting videos to a universal format can be added later.
 - **Wrong date on a photo?** That means the file had no "date taken" (screenshots, some messaging-app saves). It falls back to the file's own date, then the upload date.
+- **Places** come from the GPS tags in the photos themselves, looked up offline — no mapping service ever sees them. Photos without GPS (screenshots, anything that came through WhatsApp) are left out of the Places list. Photos added before this existed get their place names from a one-off `python -m app.backfill_places`.
 - **Backups:** keep iCloud/Google Photos running alongside this. Railway's bucket is durable, but this shouldn't be the only copy.
 - **Costs:** storage is about $0.015 per GB a month; family viewing is free (bucket downloads aren't charged). Uploading counts as service traffic, a few cents per GB.
 
@@ -81,6 +83,7 @@ uvicorn app.main:app --reload
 Add `SECURE_COOKIES=0` when testing over plain http.
 
 ## Roadmap
-1. Timelapse builder (face-aligned, "6 months → 4 years")
-2. Cover maker (editable masthead, layouts, export)
-3. Automatic backup from your phones
+1. Timelapse builder (face-aligned, "6 months → 4 years") — `/timelapse` is a placeholder for now
+2. Automatic backup from your phones
+
+Done: cover maker, and the Home almanac.

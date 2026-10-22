@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}{{ site_name }} capsule{% endblock %}
+{% block main %}
+<main class="home">
+
+  <!-- masthead -->
+  <section class="mast">
+    <div class="mast-main">
+      <p class="eyebrow">The almanac · {{ s.today_label }}{% if s.age %} · Age {{ s.age }}{% endif %}</p>
+      <h1 class="mast-head">{{ '{:,}'.format(s.totals.photos) }} <em>moments</em></h1>
+    </div>
+    <div class="figures">
+      <div class="fig">
+        <span class="fig-n">{{ '{:,}'.format(s.totals.videos) }}</span>
+        <span class="fig-l">videos{% if s.totals.video_seconds %} · {{ s.totals.video_duration }}{% endif %}</span>
+      </div>
+      <div class="fig">
+        <span class="fig-n">{{ '{:,}'.format(s.totals.days) }}</span>
+        <span class="fig-l">days captured</span>
+      </div>
+      <div class="fig">
+        <span class="fig-n">{{ '{:,}'.format(s.totals.streak) }}</span>
+        <span class="fig-l">longest daily streak</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- three panels -->
+  <section class="panels">
+    <article class="panel">
+      <h2 class="panel-h">{{ s.on_this_day.title }}</h2>
+      <p class="panel-note">{{ s.on_this_day.note }}</p>
+      {% if s.on_this_day.picks %}
+      <div class="otd">
+        {% for p in s.on_this_day.picks %}
+        <figure class="otd-one">
+          <a class="shot tile" href="{{ p.full }}" data-id="{{ p.id }}" data-full="{{ p.full }}"
+             data-date="{{ p.date }}" data-age="{{ p.age }}" aria-label="Photo from {{ p.date }}">
+            <img src="{{ p.thumb }}" alt="" loading="lazy" decoding="async">
+          </a>
+          <figcaption>{{ p.caption }}{% if not p.exact %}<span class="near">nearby day</span>{% endif %}</figcaption>
+        </figure>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <h2 class="panel-h">Surprise me</h2>
+      <p class="panel-note">One photo at random — out of the whole album, or a slice of it.</p>
+      <div class="surprise">
+        <label class="vis-hidden" for="sc-scope">Pick from</label>
+        <select class="select" id="sc-scope">
+          <option value="any">Anywhere</option>
+          <option value="year" {% if not s.scopes.year %}disabled{% endif %}>A year…</option>
+          <option value="month" {% if not s.scopes.month %}disabled{% endif %}>A month…</option>
+          <option value="place" {% if not s.scopes.place %}disabled{% endif %}>A place…</option>
+          <option value="weekday" {% if not s.scopes.weekday %}disabled{% endif %}>A day of the week…</option>
+        </select>
+        {% for key, label in [('year', 'Which year'), ('month', 'Which month'), ('place', 'Which place'), ('weekday', 'Which day')] %}
+        <label class="vis-hidden" for="sc-{{ key }}">{{ label }}</label>
+        <select class="select sc-value" id="sc-{{ key }}" data-scope="{{ key }}" hidden>
+          {% for o in s.scopes[key] %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        {% endfor %}
+        <button class="btn primary" id="sc-go" type="button">Pull one</button>
+      </div>
+      <p class="panel-note" id="sc-msg" role="status" aria-live="polite"></p>
+    </article>
+
+    <article class="panel">
+      <div class="panel-top">
+        <h2 class="panel-h">Just added</h2>
+        {% if s.latest.link %}<a class="seeall" href="{{ s.latest.link }}">See all</a>{% endif %}
+      </div>
+      <p class="panel-note">{{ s.latest.caption or 'Nothing uploaded yet' }}</p>
+      {% if s.latest.tiles %}
+      <div class="batch">
+        {% for i in s.latest.tiles %}
+        {% if i.kind == 'photo' %}
+        <a class="shot tile" href="{{ i.full }}" data-id="{{ i.id }}" data-full="{{ i.full }}"
+           data-date="{{ i.date }}" data-age="{{ i.age }}" aria-label="Photo from {{ i.date }}">
+          <img src="{{ i.thumb }}" alt="" loading="lazy" decoding="async">
+        </a>
+        {% else %}
+        <a class="shot" href="{{ i.href }}" aria-label="Video from {{ i.date }}">
+          {% if i.thumb %}<img src="{{ i.thumb }}" alt="" loading="lazy" decoding="async">{% endif %}
+          <span class="play-dot"><svg width="14" height="14" viewBox="0 0 24 24" fill="#1A1A18" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg></span>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+  </section>
+
+  <!-- a year of days -->
+  <section class="block">
+    <div class="block-top">
+      <h2 class="block-h">The last twelve months, day by day</h2>
+      <div class="legend">
+        <span>Less</span>
+        {% for level in [0, 1, 2, 3, 4] %}<i class="sq lvl-{{ level }}"></i>{% endfor %}
+        <span>More</span>
+      </div>
+    </div>
+    <div class="heat-scroll">
+      <div class="heat-inner" style="--cols: {{ s.heatmap.columns }}">
+        <div class="heat">
+          {% for week in s.heatmap.weeks %}{% for day in week %}{% if not day %}<i class="sq empty"></i>{% elif day.href %}<a class="sq lvl-{{ day.level }}" href="{{ day.href }}" title="{{ day.title }}" aria-label="{{ day.title }}"></a>{% else %}<i class="sq lvl-0" title="{{ day.title }}"></i>{% endif %}{% endfor %}{% endfor %}
+        </div>
+        <div class="heat-months">
+          {% for m in s.heatmap.months %}<span style="grid-column: {{ m.col + 1 }}">{{ m.label }}</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- every month so far -->
+  <section class="block">
+    <div class="block-top">
+      <h2 class="block-h">Photos per month, since the beginning</h2>
+      {% if s.monthly.busiest %}<p class="block-note">{{ s.monthly.busiest }}</p>{% endif %}
+    </div>
+    {% if s.monthly.bars %}
+    <div class="plot" style="--cols: {{ s.monthly.bars|length }}">
+      {% for b in s.monthly.bars %}
+      <a class="plot-bar{% if b.highlight %} on{% endif %}" href="{{ b.href }}" title="{{ b.title }}"
+         aria-label="{{ b.title }}" style="--h: {{ b.pct }}%"></a>
+      {% endfor %}
+    </div>
+    <div class="ticks" style="--cols: {{ s.monthly.bars|length }}">
+      {% for t in s.monthly.ticks %}<span style="grid-column: {{ t.col + 1 }}">{{ t.label }}</span>{% endfor %}
+    </div>
+    {% else %}
+    <p class="block-note">No photos yet.</p>
+    {% endif %}
+  </section>
+
+  <!-- three small charts -->
+  <section class="trio">
+    <article class="mini">
+      <p class="eyebrow">Time of day</p>
+      <h3 class="mini-h">{{ s.hours.headline }}</h3>
+      <div class="plot small" style="--cols: 24">
+        {% for b in s.hours.bars %}
+        <i class="plot-bar{% if b.highlight %} on{% endif %}" title="{{ b.title }}" style="--h: {{ b.pct }}%"></i>
+        {% endfor %}
+      </div>
+      <div class="ticks" style="--cols: 24">
+        {% for h in [0, 6, 12, 18] %}<span style="grid-column: {{ h + 1 }}">{{ '%02d'|format(h) }}</span>{% endfor %}
+      </div>
+    </article>
+
+    <article class="mini">
+      <p class="eyebrow">Day of week</p>
+      <h3 class="mini-h">{{ s.weekdays.headline }}</h3>
+      <div class="hbars">
+        {% for b in s.weekdays.bars %}
+        <div class="hbar">
+          <span class="hbar-l">{{ b.label }}</span>
+          <span class="hbar-track"><i class="{% if b.highlight %}on{% endif %}" style="width: {{ b.pct }}%"></i></span>
+          <span class="hbar-n">{{ '{:,}'.format(b.n) }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="mini">
+      <p class="eyebrow">Places</p>
+      <h3 class="mini-h">{{ s.places.headline }}</h3>
+      {% if s.places.top %}
+      <ol class="places">
+        {% for p in s.places.top %}
+        <li><span class="pl-r">{{ p.rank }}</span><span class="pl-n">{{ p.name }}</span><span class="pl-c">{{ '{:,}'.format(p.n) }}</span></li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+      {% if s.places.note %}<p class="mini-note">{{ s.places.note }}</p>{% endif %}
+    </article>
+  </section>
+
+  <!-- the rest of the album -->
+  <nav class="jump" aria-label="Sections">
+    <a href="/photos">Photos <span>{{ '{:,}'.format(s.totals.photos) }}</span></a>
+    <a href="/videos">Videos <span>{{ '{:,}'.format(s.totals.videos) }}</span></a>
+    <a href="/timelapse">Timelapse <span>in the works</span></a>
+    <a href="/covers">Covers <span>{{ '{:,}'.format(s.totals.covers) }}</span></a>
+  </nav>
+</main>
+
+{% include "_viewer.html" %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/gallery.js?v=3"></script>
+<script src="/static/home.js?v=1"></script>
+{% endblock %}

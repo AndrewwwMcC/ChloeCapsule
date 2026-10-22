@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS media (
     mime          text,
     original_name text,
     sha256        text UNIQUE,
+    lat           double precision,          -- where it was taken, from EXIF GPS
+    lon           double precision,
+    place         text,                      -- nearest town, worked out once at upload
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS media_kind_taken ON media (kind, taken_at DESC);
@@ -59,6 +62,9 @@ CREATE TABLE IF NOT EXISTS media (
     mime          text,
     original_name text,
     sha256        text UNIQUE,
+    lat           real,
+    lon           real,
+    place         text,
     created_at    timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS media_kind_taken ON media (kind, taken_at DESC);
@@ -125,15 +131,33 @@ def _one(cur) -> dict | None:
     return dict(r) if r else None
 
 
+# Columns added after the first albums were already live, so they arrive by migration too.
+LATER_COLUMNS = {"lat": ("real", "double precision"), "lon": ("real", "double precision"),
+                 "place": ("text", "text")}
+
+
+def _migrate(conn) -> None:
+    if SQLITE:
+        have = {r[1] for r in conn.execute("PRAGMA table_info(media)")}
+        for col, (decl, _) in LATER_COLUMNS.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE media ADD COLUMN {col} {decl}")
+    else:
+        for col, (_, decl) in LATER_COLUMNS.items():
+            conn.execute(f"ALTER TABLE media ADD COLUMN IF NOT EXISTS {col} {decl}")
+
+
 def init() -> None:
     if SQLITE:
         settings.local_dir.mkdir(parents=True, exist_ok=True)
         with _conn() as conn:
             conn.executescript(SQLITE_SCHEMA)
+            _migrate(conn)
     else:
         pool.open(wait=True)
         with _conn() as conn:
             conn.execute(PG_SCHEMA)
+            _migrate(conn)
 
 
 def close() -> None:
@@ -202,6 +226,22 @@ def videos_without_poster() -> list[dict]:
         return _rows(conn.execute(_sql(
             "SELECT * FROM media WHERE kind = 'video' AND (thumb_key IS NULL OR thumb_key = '') "
             "ORDER BY taken_at DESC")))
+
+
+def media_index() -> list[dict]:
+    """Lean rows for the Home page: enough to count, group and pick from, no more."""
+    with _conn() as conn:
+        return _rows(conn.execute(_sql(
+            "SELECT id, kind, taken_at, created_at, duration, place, thumb_key, display_key "
+            "FROM media ORDER BY taken_at DESC")))
+
+
+def photos_without_place() -> list[dict]:
+    """Photos never looked at for a location — what the one-off backfill works through."""
+    with _conn() as conn:
+        return _rows(conn.execute(_sql(
+            "SELECT id, original_key, original_name FROM media "
+            "WHERE kind = 'photo' AND place IS NULL AND lat IS NULL ORDER BY taken_at DESC")))
 
 
 def all_media(kind: str) -> list[dict]:

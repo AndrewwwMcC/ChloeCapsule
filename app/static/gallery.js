@@ -9,7 +9,8 @@
   const cover = document.getElementById('v-cover');
   const stage = document.getElementById('v-stage');
   let tiles = Array.from(document.querySelectorAll('.tile'));
-  let current = -1;
+  let current = -1;       // -1 when showing a photo that isn't a tile on this page
+  let shown = null;       // what the viewer has up right now
   let lastFocus = null;
 
   function preload(i) {
@@ -17,20 +18,25 @@
     if (t) { const p = new Image(); p.src = t.dataset.full; }
   }
 
+  function paint(item) {
+    shown = item;
+    img.src = item.full;
+    when.textContent = '';
+    when.append(item.date || '');
+    if (item.age) {
+      const s = document.createElement('span');
+      s.textContent = item.age;
+      when.append(s);
+    }
+    dl.href = '/media/' + item.id + '/download';
+    if (cover) cover.href = '/covers/new?photo=' + item.id;
+  }
+
   function show(i) {
     if (!tiles.length) return close();
     current = (i + tiles.length) % tiles.length;
     const t = tiles[current];
-    img.src = t.dataset.full;
-    when.textContent = '';
-    when.append(t.dataset.date);
-    if (t.dataset.age) {
-      const s = document.createElement('span');
-      s.textContent = t.dataset.age;
-      when.append(s);
-    }
-    dl.href = '/media/' + t.dataset.id + '/download';
-    if (cover) cover.href = '/covers/new?photo=' + t.dataset.id;
+    paint({ id: t.dataset.id, full: t.dataset.full, date: t.dataset.date, age: t.dataset.age });
     preload(current + 1);
     preload(current - 1);
   }
@@ -42,6 +48,18 @@
     show(i);
     document.getElementById('v-close').focus();
   }
+
+  // Home's "Surprise me" hands us a photo that isn't one of the tiles on the page.
+  window.capsule = {
+    openItem(item) {
+      lastFocus = document.activeElement;
+      viewer.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      current = -1;
+      paint(item);
+      document.getElementById('v-close').focus();
+    },
+  };
 
   function close() {
     viewer.classList.remove('open');
@@ -84,13 +102,15 @@
 
   if (del) {
     del.addEventListener('click', async () => {
-      const t = tiles[current];
-      if (!t || !confirm('Delete this photo for everyone? This can’t be undone.')) return;
-      const res = await fetch('/api/media/' + t.dataset.id, { method: 'DELETE' });
+      if (!shown || !confirm('Delete this photo for everyone? This can’t be undone.')) return;
+      const res = await fetch('/api/media/' + shown.id, { method: 'DELETE' });
       if (!res.ok) { alert('Couldn’t delete it. Try again.'); return; }
-      t.remove();
-      tiles = Array.from(document.querySelectorAll('.tile'));
-      if (!tiles.length) { close(); location.reload(); return; }
+      const t = tiles[current];
+      if (t && t.dataset.id === shown.id) {
+        t.remove();
+        tiles = Array.from(document.querySelectorAll('.tile'));
+      }
+      if (current < 0 || !tiles.length) { close(); location.reload(); return; }
       show(current >= tiles.length ? 0 : current);
     });
   }

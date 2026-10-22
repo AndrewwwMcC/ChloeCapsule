@@ -60,6 +60,31 @@ def _parse_exif_date(value: str | None, offset: str | None) -> datetime | None:
     return dt  # EXIF is already local wall-clock time, which is what we group by
 
 
+def _degrees(value, ref) -> float | None:
+    """EXIF keeps GPS as degrees/minutes/seconds plus N/S/E/W."""
+    try:
+        d, m, s = (float(x) for x in value)
+    except (TypeError, ValueError):
+        return None
+    deg = d + m / 60 + s / 3600
+    return -deg if str(ref).strip().upper() in ("S", "W") else deg
+
+
+def gps_of(exif) -> tuple[float | None, float | None]:
+    gps = exif.get_ifd(0x8825) if exif else None
+    if not gps:
+        return None, None
+    lat = _degrees(gps.get(2), gps.get(1))
+    lon = _degrees(gps.get(4), gps.get(3))
+    if lat is None or lon is None:
+        return None, None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None, None
+    if abs(lat) < 0.0001 and abs(lon) < 0.0001:
+        return None, None  # 0,0 means the camera wrote an empty tag
+    return round(lat, 6), round(lon, 6)
+
+
 def from_epoch_ms(ms: int | float | None) -> datetime | None:
     if not ms:
         return None
@@ -77,6 +102,7 @@ def process_photo(data: bytes) -> dict:
     exif = img.getexif()
     sub = exif.get_ifd(0x8769) if exif else {}
     taken = _parse_exif_date(sub.get(36867) or sub.get(36868) or exif.get(306), sub.get(36881))
+    lat, lon = gps_of(exif)
 
     img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "RGBA"):
@@ -84,6 +110,8 @@ def process_photo(data: bytes) -> dict:
 
     return {
         "taken_at": taken,
+        "lat": lat,
+        "lon": lon,
         "width": img.width,
         "height": img.height,
         "display": _webp(img, DISPLAY_EDGE, 84),

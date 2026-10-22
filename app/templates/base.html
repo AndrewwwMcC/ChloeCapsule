@@ -11,17 +11,19 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=5">
+<link rel="stylesheet" href="/static/style.css?v=6">
 {% block head %}{% endblock %}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231A1A18'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23FAFAF8' stroke-width='2.5'/%3E%3C/svg%3E">
 </head>
 <body>
 {% block body %}
 <header class="top">
-  <a class="wordmark" href="/photos">{{ site_name }}<em> capsule</em></a>
+  <a class="wordmark" href="/">{{ site_name }}<em> capsule</em></a>
   <nav class="nav" aria-label="Sections">
+    <a class="pill" href="/" {% if nav == 'home' %}aria-current="page"{% endif %}>Home</a>
     <a class="pill" href="/photos" {% if nav == 'photos' %}aria-current="page"{% endif %}>Photos</a>
     <a class="pill" href="/videos" {% if nav == 'videos' %}aria-current="page"{% endif %}>Videos</a>
+    <a class="pill" href="/timelapse" {% if nav == 'timelapse' %}aria-current="page"{% endif %}>Timelapse</a>
     <a class="pill" href="/covers" {% if nav == 'covers' %}aria-current="page"{% endif %}>Covers</a>
   </nav>
   {% if role == 'admin' %}

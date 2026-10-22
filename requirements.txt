@@ -7,3 +7,4 @@ psycopg[binary,pool]>=3.3,<4
 boto3>=1.43,<2
 pillow>=12,<13
 pillow-heif>=1.8,<2
+reverse-geocode>=1.6,<2

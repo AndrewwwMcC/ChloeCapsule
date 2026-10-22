@@ -15,10 +15,12 @@ if not exist .venv (
 .venv\Scripts\python -m pip install -q --disable-pip-version-check -r requirements.txt
 
 set LOCAL_DEV=1
-rem Optional personal settings (e.g. BIRTH_DATE=2023-04-02) go in local.env, one per line.
+rem Personal settings go in local.env, one per line. BIRTH_DATE=YYYY-MM-DD turns on the
+rem age in the Home masthead and the "age 2" captions; see .env.example for the rest.
 if exist local.env for /f "usebackq eol=# tokens=1,* delims==" %%a in ("local.env") do set "%%a=%%b"
 
 echo.
+if not defined BIRTH_DATE echo   No BIRTH_DATE set - put BIRTH_DATE=YYYY-MM-DD in local.env for age labels.
 echo   Open http://localhost:8000   (admin password: admin, family password: family)
 echo   Stop with Ctrl+C
 echo.

@@ -16,7 +16,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, PlainTe
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, db, media, storage
+from . import auth, db, media, places, stats, storage
 from .config import settings
 
 log = logging.getLogger("uvicorn.error")  # the logger uvicorn already prints
@@ -152,11 +152,21 @@ def logout():
     return resp
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    """The almanac: where both admins and family land after logging in."""
     if (r := needs_login(request)):
         return r
-    return RedirectResponse("/photos", status_code=303)
+    return no_store(templates.TemplateResponse(request, "home.html", ctx(
+        request, nav="home", s=stats.with_urls(stats.payload()))))
+
+
+@app.get("/timelapse", response_class=HTMLResponse)
+def timelapse(request: Request):
+    if (r := needs_login(request)):
+        return r
+    return no_store(templates.TemplateResponse(request, "timelapse.html", ctx(
+        request, nav="timelapse")))
 
 
 @app.get("/photos", response_class=HTMLResponse)
@@ -399,12 +409,15 @@ def ingest(*, media_id: str, key: str, kind: str, name: str, size: int, mime: st
         thumb_key = f"thumb/{media_id}.webp"
         storage.put(thumb_key, result["thumb"], "image/webp")
 
+    lat, lon = result.get("lat"), result.get("lon")
     db.insert_media({
         "id": media_id, "kind": kind, "taken_at": taken, "date_source": source,
         "original_key": key, "display_key": display_key, "thumb_key": thumb_key,
         "width": result["width"], "height": result["height"], "duration": result.get("duration"),
         "bytes": size, "mime": mime, "original_name": name, "sha256": sha,
+        "lat": lat, "lon": lon, "place": places.place_for(lat, lon),
     })
+    stats.invalidate()  # the Home page counts this one now
     return {"id": media_id, "kind": kind, "taken_at": taken.isoformat(), "date_source": source}
 
 
@@ -439,6 +452,7 @@ def make_poster(m: dict) -> bool:
             fields[col] = result[col]
 
     db.update_media(media_id, fields)
+    stats.invalidate()
     return True
 
 
@@ -577,6 +591,28 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
         Path(tmp.name).unlink(missing_ok=True)
 
 
+# --- the Home page's data (one call, served from memory) -------------------------
+
+@app.get("/api/stats")
+def api_stats(request: Request):
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    return no_store(JSONResponse(stats.with_urls(stats.payload())))
+
+
+@app.get("/api/random")
+def api_random(request: Request, scope: str = "any", value: str | None = None):
+    """Surprise me: one photo out of the chosen slice of the album."""
+    if not auth.role_of(request):
+        raise HTTPException(401)
+    if scope not in stats.SCOPES:
+        raise HTTPException(400, "Unknown scope")
+    pick = stats.random_photo(scope, value)
+    if not pick:
+        raise HTTPException(404, "No photos match that")
+    return no_store(JSONResponse(pick))
+
+
 # --- admin: delete, make a missing poster ----------------------------------------
 
 @app.post("/api/media/{media_id}/poster")
@@ -642,6 +678,7 @@ async def save_cover(request: Request, image: UploadFile = File(...),
         await run_in_threadpool(db.update_cover, cid, row)
     else:
         await run_in_threadpool(db.insert_cover, {"id": cid, "created_at": now, **row})
+    stats.invalidate()
     return {"id": cid}
 
 
@@ -653,6 +690,7 @@ def delete_cover_item(request: Request, cover_id: uuid.UUID):
         raise HTTPException(404)
     storage.delete(c["image_key"], c["thumb_key"])
     db.delete_cover(str(cover_id))
+    stats.invalidate()
     return {"ok": True}
 
 
@@ -665,4 +703,5 @@ def delete_item(request: Request, media_id: uuid.UUID):
     storage.delete(m["original_key"], m["display_key"], m["thumb_key"])
     db.clear_cover_source(str(media_id))  # covers made from it stay in /covers
     db.delete_media(str(media_id))
+    stats.invalidate()
     return {"ok": True}
