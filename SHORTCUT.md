@@ -2,7 +2,7 @@
 
 Select photos in the Photos app → Share → **Send to Capsule**. The originals go straight up with their dates, and duplicates are skipped. Set it up once on each of your phones.
 
-You need two things: your site address (e.g. `https://your-app.up.railway.app`) and the `UPLOAD_TOKEN` you set in Railway.
+You need two things: your site address (e.g. `https://your-app.up.railway.app`) and the `SHORTCUT_TOKEN` you set in Railway. That token is *not* the site password — it only lets the Shortcut upload, and it opens nothing else on the site.
 
 ## Build it
 
@@ -17,7 +17,7 @@ You need two things: your site address (e.g. `https://your-app.up.railway.app`) 
    **Get Contents of URL**
    - URL: `https://YOUR-SITE/api/shortcut/upload`
    - Method: **POST**
-   - Headers: add `Authorization` = `Bearer YOUR_UPLOAD_TOKEN` (the word *Bearer*, a space, then the token)
+   - Headers: add `Authorization` = `Bearer YOUR_SHORTCUT_TOKEN` (the word *Bearer*, a space, then the token)
    - Request Body: **Form**
      - add field → type **File**, key `file`, value **Repeat Item**
 
@@ -27,7 +27,14 @@ You need two things: your site address (e.g. `https://your-app.up.railway.app`) 
 
 4. Done. Try it with one photo first and check it appears on the site.
 
+## Updating an existing Shortcut
+
+If you already built this with the old `UPLOAD_TOKEN`, you only need to change one thing:
+open the Shortcut → **Get Contents of URL** → **Headers** → replace the value of
+`Authorization` with `Bearer <your new SHORTCUT_TOKEN>`. The URL and everything else stay
+the same. Do it on both phones.
+
 ## Notes
 - Each file must be under roughly 100 MB this way. For long videos, use the Upload page on the site instead (it sends big files in pieces).
-- Keep the token private. If a phone is lost, change `UPLOAD_TOKEN` in Railway and update the Shortcut.
+- Keep the token private. If a phone is lost, change `SHORTCUT_TOKEN` in Railway and update the Shortcut. Changing it doesn't log anyone out of the site, and changing the site password doesn't stop the Shortcut.
 - Later this same Shortcut can run automatically each night to back up new photos.

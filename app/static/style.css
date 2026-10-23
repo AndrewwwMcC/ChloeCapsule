@@ -357,6 +357,25 @@ button { font: inherit; color: inherit; }
 .foot { padding: 32px var(--gutter); border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .foot a { color: var(--muted); }
 
+/* ---------- download everything ---------- */
+.dl-figure { display: flex; flex-direction: column; margin: 0 0 24px; }
+.dl-figure .fig-l { max-width: none; }
+.upload-wrap code {
+  font-size: .92em; padding: 1px 5px; border-radius: 4px; background: var(--tile);
+}
+.dl-years { margin-top: 44px; padding-top: 28px; border-top: 1px solid var(--line); }
+.dl-years h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 34px; line-height: 1; }
+.dl-years > p { margin: 10px 0 18px; color: var(--muted); font-size: 14px; max-width: 54ch; }
+.dl-years ul { margin: 0; padding: 0; list-style: none; }
+.dl-years li {
+  display: flex; align-items: center; gap: 16px; min-height: 44px;
+  border-bottom: 1px solid var(--line);
+}
+.dl-years li:last-child { border-bottom: 0; }
+.dl-years li a { flex: 0 0 4.5em; font-family: var(--serif); font-size: 24px; }
+.dl-years li span { color: var(--muted); font-size: 13px; }
+.dl-years li span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
+
 /* ---------- home: the almanac ---------- */
 .home { max-width: 1440px; margin: 0 auto; padding: 0 var(--gutter) 80px; }
 

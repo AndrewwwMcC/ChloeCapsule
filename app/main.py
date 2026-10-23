@@ -1,22 +1,26 @@
 import hashlib
 import json
 import logging
+import re
 import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, PlainTextResponse,
-                               RedirectResponse, Response)
+                               RedirectResponse, Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import MutableHeaders
 
-from . import auth, db, media, places, stats, storage
+from . import auth, backup, db, media, places, stats, storage
 from .config import settings
 
 log = logging.getLogger("uvicorn.error")  # the logger uvicorn already prints
@@ -37,6 +41,61 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+# --- the gate: one session check and one set of headers for the whole site -------
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "DENY",
+    "X-Robots-Tag": "noindex, nofollow",
+}
+if settings.secure_cookies:  # https only — pointless, and sticky, on localhost
+    SECURITY_HEADERS["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+# Everything else needs a session. The login page has to be reachable to log in; the
+# stylesheet and scripts are the same for everyone and say nothing about the album;
+# /healthz is how Railway knows the app is up; the Shortcut checks its own token.
+OPEN_PATHS = {"/login", "/logout", "/robots.txt", "/healthz", "/favicon.ico",
+              "/api/shortcut/upload"}
+OPEN_PREFIXES = ("/static/",)
+
+
+class Gate:
+    """Pure ASGI, so a multi-gigabyte zip streams straight out without being wrapped."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in SECURITY_HEADERS.items():
+                    headers[name] = value
+            await send(message)
+
+        path = scope["path"]
+        if path in OPEN_PATHS or path.startswith(OPEN_PREFIXES):
+            return await self.app(scope, receive, send_with_headers)
+
+        request = Request(scope, receive)
+        if auth.logged_in(request):
+            return await self.app(scope, receive, send_with_headers)
+
+        wants_page = scope["method"] == "GET" and "text/html" in request.headers.get("accept", "")
+        if wants_page:
+            denied = RedirectResponse(f"/login?next={quote(path)}", status_code=303)
+        else:
+            denied = JSONResponse({"error": "Log in first"}, status_code=401)
+        await denied(scope, receive, send_with_headers)
+
+
+app.add_middleware(Gate)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 
@@ -83,14 +142,7 @@ def rail_age(year: int) -> str | None:
 
 
 def ctx(request: Request, **extra) -> dict:
-    return {"request": request, "site_name": settings.site_name,
-            "role": auth.role_of(request), **extra}
-
-
-def needs_login(request: Request) -> RedirectResponse | None:
-    if not auth.role_of(request):
-        return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
-    return None
+    return {"request": request, "site_name": settings.site_name, **extra}
 
 
 def no_store(resp):
@@ -123,56 +175,49 @@ def login_page(request: Request, next: str = "/"):
 
 
 @app.post("/login")
-def login(request: Request, password: str = Form(...), remember: str | None = Form(None),
-          next: str = Form("/")):
+def login(request: Request, password: str = Form(...), next: str = Form("/")):
     ip = auth.client_ip(request)
     if auth.too_many_attempts(ip):
         return no_store(templates.TemplateResponse(
             request, "login.html", ctx(request, next=next, error="Too many tries. Wait 15 minutes."),
             status_code=429))
-    role = auth.check_password(password)
-    if not role:
+    if not auth.password_ok(password):
         auth.record_failure(ip)
         time.sleep(0.6)
         return no_store(templates.TemplateResponse(
             request, "login.html", ctx(request, next=next, error="That password didn't work."),
             status_code=401))
+    auth.clear_failures(ip)
     target = next if next.startswith("/") and not next.startswith("//") else "/"
     resp = RedirectResponse(target, status_code=303)
-    resp.set_cookie(auth.COOKIE, auth.make_cookie(role), httponly=True, samesite="lax",
-                    secure=settings.secure_cookies,
-                    max_age=auth.REMEMBER_SECONDS if remember else None)
+    resp.set_cookie(auth.COOKIE, auth.make_cookie(), httponly=True, samesite="lax",
+                    secure=settings.secure_cookies, max_age=auth.SESSION_SECONDS, path="/")
     return resp
 
 
 @app.get("/logout")
 def logout():
     resp = RedirectResponse("/login", status_code=303)
-    resp.delete_cookie(auth.COOKIE)
+    resp.delete_cookie(auth.COOKIE, path="/", httponly=True, samesite="lax",
+                       secure=settings.secure_cookies)
     return resp
 
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    """The almanac: where both admins and family land after logging in."""
-    if (r := needs_login(request)):
-        return r
+    """The almanac: where we land after logging in."""
     return no_store(templates.TemplateResponse(request, "home.html", ctx(
         request, nav="home", s=stats.with_urls(stats.payload()))))
 
 
 @app.get("/timelapse", response_class=HTMLResponse)
 def timelapse(request: Request):
-    if (r := needs_login(request)):
-        return r
     return no_store(templates.TemplateResponse(request, "timelapse.html", ctx(
         request, nav="timelapse")))
 
 
 @app.get("/photos", response_class=HTMLResponse)
 def photos_latest(request: Request):
-    if (r := needs_login(request)):
-        return r
     years = db.year_counts("photo")
     if years:
         return RedirectResponse(f"/photos/{years[0]['year']}", status_code=303)
@@ -182,8 +227,6 @@ def photos_latest(request: Request):
 
 @app.get("/photos/{year}", response_class=HTMLResponse)
 def photos_year(request: Request, year: int):
-    if (r := needs_login(request)):
-        return r
     years = [{"year": y["year"], "n": y["n"], "age": rail_age(y["year"])} for y in db.year_counts("photo")]
     items = db.media_in_year("photo", year)
     video_total = sum(y["n"] for y in db.year_counts("video") if y["year"] == year)
@@ -218,8 +261,6 @@ def photos_year(request: Request, year: int):
 
 @app.get("/videos", response_class=HTMLResponse)
 def videos(request: Request, year: int | None = None):
-    if (r := needs_login(request)):
-        return r
     years = [y["year"] for y in db.year_counts("video")]
     items = db.media_in_year("video", year) if year else db.all_media("video")
     groups: list[dict] = []
@@ -271,19 +312,12 @@ def cover_card(c: dict) -> dict:
 
 @app.get("/covers", response_class=HTMLResponse)
 def covers_page(request: Request):
-    if (r := needs_login(request)):
-        return r
     return no_store(templates.TemplateResponse(request, "covers.html", ctx(
         request, nav="covers", covers=[cover_card(c) for c in db.all_covers()])))
 
 
 @app.get("/covers/new", response_class=HTMLResponse)
 def cover_editor(request: Request, photo: str | None = None, cover: str | None = None):
-    if (r := needs_login(request)):
-        return r
-    if auth.role_of(request) != "admin":
-        return RedirectResponse("/covers", status_code=303)
-
     picker = [{
         "id": str(m["id"]), "thumb": storage.url(m["thumb_key"]), "year": m["taken_at"].year,
         "when": f"{MONTHS[m['taken_at'].month - 1]} {m['taken_at'].year}",
@@ -311,9 +345,7 @@ def cover_editor(request: Request, photo: str | None = None, cover: str | None =
 
 
 @app.get("/covers/{cover_id}/download")
-def cover_download(request: Request, cover_id: uuid.UUID):
-    if not auth.role_of(request):
-        raise HTTPException(401)
+def cover_download(cover_id: uuid.UUID):
     c = db.get_cover(str(cover_id))
     if not c:
         raise HTTPException(404)
@@ -323,21 +355,15 @@ def cover_download(request: Request, cover_id: uuid.UUID):
 
 @app.get("/upload", response_class=HTMLResponse)
 def upload_page(request: Request):
-    if (r := needs_login(request)):
-        return r
-    if auth.role_of(request) != "admin":
-        return RedirectResponse("/photos", status_code=303)
     return no_store(templates.TemplateResponse(request, "upload.html", ctx(
         request, nav="upload", chunk_size=CHUNK_SIZE)))
 
 
 @app.get("/files/{key:path}")
-def local_file(request: Request, key: str, download: str | None = None):
+def local_file(key: str, download: str | None = None):
     """Local mode only: serves stored files to logged-in visitors."""
     if not storage.LOCAL:
         raise HTTPException(404)
-    if not auth.role_of(request):
-        raise HTTPException(401)
     try:
         path = storage.local_path(key)
     except ValueError:
@@ -348,12 +374,10 @@ def local_file(request: Request, key: str, download: str | None = None):
 
 
 @app.get("/media/{media_id}/image")
-def media_image(request: Request, media_id: uuid.UUID):
+def media_image(media_id: uuid.UUID):
     """The photo's display copy served by the app itself. The cover editor draws it on a
     canvas, which it may only read back from if the bytes came from our own origin —
     a redirect to a signed bucket link would taint the canvas."""
-    if not auth.role_of(request):
-        raise HTTPException(401)
     m = db.get_media(str(media_id))
     if not m:
         raise HTTPException(404)
@@ -367,14 +391,52 @@ def media_image(request: Request, media_id: uuid.UUID):
 
 
 @app.get("/media/{media_id}/download")
-def download(request: Request, media_id: uuid.UUID):
-    if not auth.role_of(request):
-        raise HTTPException(401)
+def media_download(media_id: uuid.UUID):
     m = db.get_media(str(media_id))
     if not m:
         raise HTTPException(404)
     name = m["original_name"] or f"{media_id}"
     return RedirectResponse(storage.url(m["original_key"], download_name=name), status_code=302)
+
+
+# --- download everything ---------------------------------------------------------
+
+def zip_filename(suffix: str) -> str:
+    plain = unicodedata.normalize("NFKD", settings.site_name).encode("ascii", "ignore").decode()
+    base = re.sub(r"[^a-z0-9]+", "-", plain.lower()).strip("-") or "capsule"
+    return f"{base}-capsule-{suffix}.zip"
+
+
+def zip_response(rows: list[dict], filename: str) -> StreamingResponse:
+    return StreamingResponse(backup.zip_of(rows), media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    })
+
+
+@app.get("/download", response_class=HTMLResponse)
+def download_page(request: Request):
+    """What the backup holds, counted and measured, before anyone starts it."""
+    return no_store(templates.TemplateResponse(request, "download.html", ctx(
+        request, nav="download", s=backup.summary(), human=backup.human)))
+
+
+@app.get("/download/everything")
+def download_everything():
+    rows = backup.entries()
+    if not rows:
+        raise HTTPException(404, "There is nothing in the album yet")
+    return zip_response(rows, zip_filename("everything"))
+
+
+@app.get("/download/{year}")
+def download_year(year: int):
+    if not 1900 <= year <= 2200:
+        raise HTTPException(400, "Year out of range")
+    rows = backup.entries(year)
+    if not rows:
+        raise HTTPException(404, f"Nothing from {year}")
+    return zip_response(rows, zip_filename(str(year)))
 
 
 # --- turning an original into a gallery item -------------------------------------
@@ -486,7 +548,6 @@ UPLOADS: dict[str, dict] = {}
 
 @app.post("/api/upload/init")
 async def upload_init(request: Request):
-    auth.require_admin(request)
     body = await request.json()
     name, size = str(body.get("name") or "file"), int(body.get("size") or 0)
     mime = str(body.get("type") or "application/octet-stream")
@@ -506,7 +567,6 @@ async def upload_init(request: Request):
 
 @app.put("/api/upload/{media_id}/part/{number}")
 async def upload_part(request: Request, media_id: str, number: int):
-    auth.require_admin(request)
     up = UPLOADS.get(media_id)
     if not up:
         raise HTTPException(404, "Upload expired — try again")
@@ -523,8 +583,7 @@ async def upload_part(request: Request, media_id: str, number: int):
 
 
 @app.post("/api/upload/{media_id}/complete")
-def upload_complete(request: Request, media_id: str):
-    auth.require_admin(request)
+def upload_complete(media_id: str):
     up = UPLOADS.pop(media_id, None)
     if not up:
         raise HTTPException(404, "Upload expired — try again")
@@ -539,8 +598,7 @@ def upload_complete(request: Request, media_id: str):
 
 
 @app.post("/api/upload/{media_id}/abort")
-def upload_abort(request: Request, media_id: str):
-    auth.require_admin(request)
+def upload_abort(media_id: str):
     up = UPLOADS.pop(media_id, None)
     if up:
         storage.mp_abort(up["key"], up["s3_id"])
@@ -551,7 +609,7 @@ def upload_abort(request: Request, media_id: str):
 
 @app.post("/api/shortcut/upload")
 def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str | None = Form(None)):
-    if not (auth.token_ok(request) or auth.role_of(request) == "admin"):
+    if not (auth.shortcut_token_ok(request) or auth.logged_in(request)):
         raise HTTPException(401, "Bad upload token")
     name = file.filename or "upload"
     mime = file.content_type or "application/octet-stream"
@@ -594,27 +652,21 @@ def shortcut_upload(request: Request, file: UploadFile = File(...), taken: str |
 # --- the Home page's data (one call, served from memory) -------------------------
 
 @app.get("/api/stats")
-def api_stats(request: Request):
-    if not auth.role_of(request):
-        raise HTTPException(401)
+def api_stats():
     return no_store(JSONResponse(stats.with_urls(stats.payload())))
 
 
 @app.get("/api/heatmap")
-def api_heatmap(request: Request, year: int):
+def api_heatmap(year: int):
     """The day-by-day grid for one calendar year, for the Home page's year picker."""
-    if not auth.role_of(request):
-        raise HTTPException(401)
     if not 1900 <= year <= 2200:
         raise HTTPException(400, "Year out of range")
     return no_store(JSONResponse(stats.heatmap(year)))
 
 
 @app.get("/api/random")
-def api_random(request: Request, scope: str = "any", value: str | None = None):
+def api_random(scope: str = "any", value: str | None = None):
     """Surprise me: one photo out of the chosen slice of the album."""
-    if not auth.role_of(request):
-        raise HTTPException(401)
     if scope not in stats.SCOPES:
         raise HTTPException(400, "Unknown scope")
     pick = stats.random_photo(scope, value)
@@ -626,8 +678,7 @@ def api_random(request: Request, scope: str = "any", value: str | None = None):
 # --- admin: delete, make a missing poster ----------------------------------------
 
 @app.post("/api/media/{media_id}/poster")
-def remake_poster(request: Request, media_id: uuid.UUID):
-    auth.require_admin(request)
+def remake_poster(media_id: uuid.UUID):
     m = db.get_media(str(media_id))
     if not m:
         raise HTTPException(404)
@@ -648,11 +699,10 @@ MAX_COVER_BYTES = 12 * 1024 * 1024
 
 
 @app.post("/api/covers")
-async def save_cover(request: Request, image: UploadFile = File(...),
+async def save_cover(image: UploadFile = File(...),
                      settings_json: str = Form(..., alias="settings"),
                      media_id: str | None = Form(None), cover_id: str | None = Form(None)):
     """Store the JPEG the editor rendered, plus the settings needed to edit it again."""
-    auth.require_admin(request)
     data = await image.read()
     if not data:
         raise HTTPException(400, "The cover came through empty")
@@ -693,8 +743,7 @@ async def save_cover(request: Request, image: UploadFile = File(...),
 
 
 @app.delete("/api/covers/{cover_id}")
-def delete_cover_item(request: Request, cover_id: uuid.UUID):
-    auth.require_admin(request)
+def delete_cover_item(cover_id: uuid.UUID):
     c = db.get_cover(str(cover_id))
     if not c:
         raise HTTPException(404)
@@ -705,8 +754,7 @@ def delete_cover_item(request: Request, cover_id: uuid.UUID):
 
 
 @app.delete("/api/media/{media_id}")
-def delete_item(request: Request, media_id: uuid.UUID):
-    auth.require_admin(request)
+def delete_item(media_id: uuid.UUID):
     m = db.get_media(str(media_id))
     if not m:
         raise HTTPException(404)

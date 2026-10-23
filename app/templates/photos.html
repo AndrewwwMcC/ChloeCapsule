@@ -6,14 +6,10 @@
   <div class="page-head">
     <div>
       <h1>Photos</h1>
-      {% if role == 'admin' %}
       <p>Nothing here yet. Upload the first photos and they'll be sorted by the day they were taken.</p>
-      {% else %}
-      <p>Nothing here yet. Photos will appear once they're added.</p>
-      {% endif %}
     </div>
   </div>
-  {% if role == 'admin' %}<a class="btn primary big" href="/upload">Upload photos</a>{% endif %}
+  <a class="btn primary big" href="/upload">Upload photos</a>
 {% else %}
 <div class="cols">
   <aside class="rail" aria-label="Years">

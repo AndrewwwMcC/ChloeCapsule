@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Download · {{ site_name }}{% endblock %}
+{% block main %}
+<main class="upload-wrap">
+  <h1>Download everything</h1>
+  <p class="lede">The originals exactly as they were uploaded — photos, videos and saved
+    covers — in one zip, sorted into folders by year and month, with a
+    <code>metadata.csv</code> listing every file.</p>
+
+  {% if s.files %}
+  <div class="dl-figure">
+    <span class="fig-n">{{ '{:,}'.format(s.files) }}</span>
+    <span class="fig-l">files · {{ human(s.bytes) }}</span>
+  </div>
+
+  <a class="btn primary big" href="/download/everything" download>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16"/></svg>
+    Download all {{ human(s.bytes) }}
+  </a>
+
+  {% if s.years | length > 1 %}
+  <section class="dl-years" aria-labelledby="dl-years-h">
+    <h2 id="dl-years-h">One year at a time</h2>
+    <p>A download has fifteen minutes to finish before the server cuts it off. If the
+      whole album doesn't make it on your connection, take it a year at a time — each
+      zip has the same folders and its own <code>metadata.csv</code>.</p>
+    <ul>
+      {% for y in s.years %}
+      <li>
+        <a href="/download/{{ y.year }}" download>{{ y.year }}</a>
+        <span>{{ '{:,}'.format(y.files) }} file{{ '' if y.files == 1 else 's' }}</span>
+        <span>{{ human(y.bytes) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <div class="notes">
+    <div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5E5E58" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span>The zip is built as it sends, so it starts at once and the file size only
+        settles when it finishes. Leave the tab alone until it does.</span>
+    </div>
+    <div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5E5E58" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V5a2 2 0 012-2h3l2 2h7a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+      <span>Nothing resized is included — no thumbnails and no video posters, only the
+        files as they came off the camera, plus the covers as full-size JPEGs.</span>
+    </div>
+    <div>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5E5E58" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+      <span>These links only work while you're logged in. There is no public link to
+        the backup, so don't try to forward one.</span>
+    </div>
+  </div>
+  {% else %}
+  <p>There is nothing in the album to download yet.</p>
+  <a class="btn primary big" href="/upload">Upload the first photos</a>
+  {% endif %}
+</main>
+{% endblock %}

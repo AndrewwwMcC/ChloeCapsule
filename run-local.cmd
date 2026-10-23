@@ -1,6 +1,6 @@
 @echo off
 rem Runs the site on this computer at http://localhost:8000 (double-click, or type run-local in a terminal here).
-rem Passwords: admin / family. Photos you upload stay in the local-data folder and never go to GitHub.
+rem Password: admin. Photos you upload stay in the local-data folder and never go to GitHub.
 cd /d "%~dp0"
 
 if not exist .venv (
@@ -21,7 +21,7 @@ if exist local.env for /f "usebackq eol=# tokens=1,* delims==" %%a in ("local.en
 
 echo.
 if not defined BIRTH_DATE echo   No BIRTH_DATE set - put BIRTH_DATE=YYYY-MM-DD in local.env for age labels.
-echo   Open http://localhost:8000   (admin password: admin, family password: family)
+echo   Open http://localhost:8000   (password: admin)
 echo   Stop with Ctrl+C
 echo.
 .venv\Scripts\python -m uvicorn app.main:app --reload --reload-dir app --port 8000

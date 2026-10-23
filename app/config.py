@@ -27,11 +27,10 @@ class Settings:
         self.birth_date: date | None = date.fromisoformat(birth) if birth else None
         self.tz = ZoneInfo(_env("TIMEZONE", "Europe/Vienna"))
 
-        # Access
-        self.family_password: str = _env("FAMILY_PASSWORD", None if prod else "family", required=True)
-        self.admin_password: str = _env("ADMIN_PASSWORD", None if prod else "admin", required=True)
+        # Access — one password, shared by the two of us, granting everything.
+        self.site_password: str = _env("SITE_PASSWORD", None if prod else "admin", required=True)
         self.session_secret: str = _env("SESSION_SECRET", None if prod else "local-dev-secret", required=True)
-        self.upload_token: str | None = _env("UPLOAD_TOKEN")  # for the iOS Shortcut
+        self.shortcut_token: str | None = _env("SHORTCUT_TOKEN")  # upload-only, for the iOS Shortcut
         self.secure_cookies: bool = _env("SECURE_COOKIES", "1" if prod else "0") == "1"
 
         # Database (Railway Postgres provides DATABASE_URL). Local: a SQLite file.

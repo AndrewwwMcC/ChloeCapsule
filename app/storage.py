@@ -15,7 +15,7 @@ from urllib.parse import quote
 from .config import settings
 
 LOCAL = settings.use_local_files
-LINK_TTL = 6 * 3600  # signed links stay valid for 6 hours
+LINK_TTL = 3600  # signed links stay valid for one hour, no longer
 
 if LOCAL:
     FILES = settings.local_dir / "files"
@@ -70,6 +70,30 @@ def get(key: str) -> bytes:
     if LOCAL:
         return local_path(key).read_bytes()
     return s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+
+
+def stream(key: str, chunk: int = 1024 * 1024):
+    """Yield one stored file in pieces, so a download never has to fit in memory."""
+    if LOCAL:
+        with open(local_path(key), "rb") as fh:
+            while data := fh.read(chunk):
+                yield data
+        return
+    body = s3.get_object(Bucket=BUCKET, Key=key)["Body"]
+    try:
+        yield from body.iter_chunks(chunk)
+    finally:
+        body.close()
+
+
+def size(key: str) -> int | None:
+    """Bytes of a stored file, or None if it has gone missing."""
+    try:
+        if LOCAL:
+            return local_path(key).stat().st_size
+        return s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+    except Exception:
+        return None
 
 
 def delete(*keys: str | None) -> None:

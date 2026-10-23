@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=8">
 {% block head %}{% endblock %}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231A1A18'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23FAFAF8' stroke-width='2.5'/%3E%3C/svg%3E">
 </head>
@@ -26,17 +26,15 @@
     <a class="pill" href="/timelapse" {% if nav == 'timelapse' %}aria-current="page"{% endif %}>Timelapse</a>
     <a class="pill" href="/covers" {% if nav == 'covers' %}aria-current="page"{% endif %}>Covers</a>
   </nav>
-  {% if role == 'admin' %}
   <a class="btn primary" href="/upload">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
     Upload
   </a>
-  {% endif %}
 </header>
 {% block main %}{% endblock %}
 <footer class="foot">
-  <span>Private album · please don't share links outside the family</span>
-  <span>Viewing as {{ 'admin' if role == 'admin' else 'family' }} · <a href="/logout">Log out</a></span>
+  <span>Private album · just the two of us</span>
+  <span><a href="/download">Download everything</a> · <a href="/logout">Log out</a></span>
 </footer>
 {% endblock %}
 {% block scripts %}{% endblock %}
