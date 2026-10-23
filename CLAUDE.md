@@ -61,8 +61,18 @@ ground `#FAFAF8`, ink `#1A1A18`, muted `#5E5E58`, accent `#2E4A7A`; display type
 body Geist. Big serif year and month headings, pill buttons, 44px minimum touch targets.
 Must work well on a phone (most viewing and uploading happens there).
 
+Fonts are self-hosted, not loaded from Google: woff2 files in `app/static/fonts/`, declared in
+`app/static/fonts.css` (Geist 400-600 and Instrument Serif, upright and italic — every page) and
+`app/static/cover-fonts.css` (the seven cover mastheads — only `/covers/new`). latin and latin-ext
+subsets, `font-display: swap`, `unicode-range` so a browser fetches only what the text needs.
+To change the set, edit `SHEETS` in `scripts/vendor_fonts.py` and run it; it rewrites both
+stylesheets. If you add a masthead, add it to both `cover.js`'s `FONTS` and that script, with the
+weight axis the family really has. `main.py` registers `font/woff2` with `mimetypes`, or the
+preloads in `base.html` are wasted.
+
 ## Rules
-- Privacy first: nothing public, no analytics or third-party scripts, keep `noindex` and robots.txt.
+- Privacy first: nothing public, no analytics, no third-party scripts, fonts or styles — the
+  browser should never be asked to fetch anything off our own origin. Keep `noindex` and robots.txt.
 - Never commit `local-data/`, `.env` or `local.env`.
 - Don't add replicas: in-progress uploads are tracked in memory (single instance).
 - Pushing to `main` deploys to Railway. Run the site locally and check the page you changed first.

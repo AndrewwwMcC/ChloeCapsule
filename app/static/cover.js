@@ -10,7 +10,8 @@
   const INNER = W - M * 2;
   const boot = JSON.parse(document.getElementById('cover-boot').textContent);
 
-  // Google Fonts we offer. `min`/`max` is the family's real weight axis — min === max
+  // The typefaces we offer, self-hosted in /static/cover-fonts.css — keep the two
+  // lists in step. `min`/`max` is the family's real weight axis — min === max
   // means a single-weight face, and we never ask for a weight outside the axis, so the
   // browser is never left to synthesize one. `italic: false` means there is no real
   // italic either, and we leave the text upright instead of letting it be fake-slanted.

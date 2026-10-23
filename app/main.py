@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import mimetypes
 import re
 import tempfile
 import threading
@@ -96,6 +97,9 @@ class Gate:
 
 
 app.add_middleware(Gate)
+# Python's mimetypes doesn't know woff2 on every platform, and a font served as
+# octet-stream throws away the <link rel="preload"> in base.html.
+mimetypes.add_type("font/woff2", ".woff2")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 

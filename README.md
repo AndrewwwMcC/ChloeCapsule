@@ -10,6 +10,7 @@ A private, password-protected photo and video album for one family — two peopl
 - Originals are kept untouched in a private Railway bucket; the site shows fast WebP copies. Every bucket link is signed and expires after an hour, so a copied link stops working.
 - **Download everything** streams the whole album back as one zip of the originals, with a `metadata.csv`, or a year at a time. It's in the footer.
 - Nothing is reachable without a session: one gate checks every page, every API call and every file. Search engines are told to stay away (`noindex`, `X-Robots-Tag`, `robots.txt`), and every response carries HSTS, `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: same-origin`.
+- **Nothing loads from anyone else.** The typefaces are self-hosted, so opening the album doesn't tell Google (or anyone) that you did. No analytics, no CDN, no third-party scripts.
 
 ---
 
